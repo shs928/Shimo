@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import { FileText, Folder, RotateCcw, Trash2 } from 'lucide-vue-next'
 import { api } from '../api'
 import { refreshTrash, refreshTree, state } from '../store'
+import PanelHeader from './PanelHeader.vue'
+import IconButton from './IconButton.vue'
+import EmptyState from './EmptyState.vue'
 
 const emit = defineEmits<{ (e: 'notify', message: string, kind: 'info' | 'error'): void }>()
 
@@ -35,14 +39,26 @@ async function purge(): Promise<void> {
 
 <template>
   <div class="trash-panel">
-    <div class="tree-header">
-      <span>回收站</span>
-      <button class="icon-btn danger" title="清空回收站" @click="purge">清空</button>
-    </div>
-    <div v-if="state.trash.length === 0" class="tree-empty">回收站为空</div>
+    <PanelHeader title="回收站" :count="state.trash.length">
+      <template #actions>
+        <IconButton title="清空回收站" kind="danger" :disabled="state.trash.length === 0" @click="purge">
+          <Trash2 :size="13" />
+        </IconButton>
+      </template>
+    </PanelHeader>
+    <EmptyState v-if="state.trash.length === 0" class="empty-state--fill">
+      <template #icon><Trash2 :size="22" /></template>
+      回收站为空
+    </EmptyState>
     <div v-for="item in state.trash" :key="item.path" class="trash-row">
-      <span class="trash-path" :title="item.path">{{ item.type === 'dir' ? '📁' : '📄' }} {{ item.path }}</span>
-      <button class="icon-btn" title="恢复" @click="restore(item.path)">↩</button>
+      <span class="trash-path" :title="item.path">
+        <span class="tree-icon">
+          <Folder v-if="item.type === 'dir'" :size="13" />
+          <FileText v-else :size="13" />
+        </span>
+        {{ item.path }}
+      </span>
+      <IconButton title="恢复" @click="restore(item.path)"><RotateCcw :size="13" /></IconButton>
     </div>
   </div>
 </template>

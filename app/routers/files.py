@@ -8,6 +8,7 @@ from ..deps import csrf_guard, get_indexer, get_vault, require_auth
 from ..services.doc_parser import is_document, parse_document
 from ..services.indexer import Indexer
 from ..services.links import resolve_wiki_target
+from ..services.link_refactor import collect_affected, refactor_links
 from ..services.vault import FileContent, MovePlan, NodeInfo, Vault
 
 router = APIRouter(prefix="/api/v1", tags=["files"], dependencies=[Depends(require_auth)])
@@ -17,6 +18,30 @@ _write_deps = [Depends(csrf_guard)]
 
 def _rag(request: Request):
     return request.app.state.rag
+
+
+def _health(request: Request):
+    return request.app.state.index_health
+
+
+def _mark_self_write(request: Request, rel: str) -> None:
+    """登记应用内写入：watcher 在抑制窗口内跳过该路径（幂等）。"""
+    watcher = getattr(request.app.state, "watcher", None)
+    if watcher is not None:
+        watcher.mark_self_write(rel)
+
+
+def _safe_index(request: Request, rel: str, kind: str = "index") -> str | None:
+    """执行索引并返回失败信息；失败时记录到 index_failures（不撤销写入）。"""
+    try:
+        if kind == "index":
+            request.app.state.indexer.index_file(rel)
+        else:
+            _reindex_ai(request, rel)
+        return None
+    except Exception as exc:
+        _health(request).record(rel, "index" if kind == "index" else "rag", str(exc))
+        return str(exc)[:200]
 
 
 def _reindex_ai(request: Request, rel: str) -> None:
@@ -48,6 +73,7 @@ class CreateIn(BaseModel):
 class MoveIn(BaseModel):
     src: str
     dst: str
+    refactor_links: bool = False  # 是否同步更新引用
 
 
 class RestoreIn(BaseModel):
@@ -90,18 +116,21 @@ def trash(request: Request, vault: Vault = Depends(get_vault)) -> dict:
 def save_file(
     request: Request,
     vault: Vault = Depends(get_vault),
-    indexer: Indexer = Depends(get_indexer),
     path: str = Query(min_length=1),
     payload: ContentIn = None,
     if_match: str | None = Header(default=None),
 ) -> FileContent:
-    result = vault.write_markdown(path, payload.content, if_match)
-    try:
-        indexer.index_file(path)
-        _rag(request).reindex_file(path, result.content)
-    except Exception:
-        # 索引失败不撤销已成功的写入；诊断 API 可观测。
-        pass
+    result = vault.write_markdown(
+        path, payload.content, if_match,
+        on_before_write=lambda rel, text, etag: request.app.state.history.save_snapshot(rel, text),
+    )
+    _mark_self_write(request, path)
+    warning = _safe_index(request, path, "index")
+    rag_warning = _safe_index(request, path, "rag")
+    if warning and not rag_warning:
+        result.index_warning = f"知识索引失败：{warning}"
+    elif rag_warning:
+        result.index_warning = f"AI 索引失败：{rag_warning}"
     return result
 
 
@@ -113,18 +142,24 @@ def create(
     payload: CreateIn = None,
 ) -> NodeInfo:
     node = vault.create(payload.path, payload.type, payload.initial_content)
+    _mark_self_write(request, node.path)
     if node.type == "file":
-        try:
-            indexer.index_file(node.path)
-            _rag(request).reindex_file(node.path, payload.initial_content)
-        except Exception:
-            pass
+        _safe_index(request, node.path, "index")
+        _safe_index(request, node.path, "rag")
     return node
 
 
 @router.post("/files/move/preview", dependencies=_write_deps)
-def move_preview(request: Request, vault: Vault = Depends(get_vault), payload: MoveIn = None) -> MovePlan:
-    return vault.preview_move(payload.src, payload.dst)
+def move_preview(request: Request, vault: Vault = Depends(get_vault), payload: MoveIn = None) -> dict:
+    plan = vault.preview_move(payload.src, payload.dst)
+    affected = []
+    if plan.valid:
+        affected = collect_affected(request.app.state.db, payload.src)
+    return {
+        **plan.__dict__,
+        "affected_links": len(affected),
+        "affected_files": [a for a in affected if a.lower().endswith(".md")],
+    }
 
 
 @router.post("/files/move", dependencies=_write_deps)
@@ -134,15 +169,26 @@ def move(
     indexer: Indexer = Depends(get_indexer),
     payload: MoveIn = None,
 ) -> NodeInfo:
+    # 先更新引用（旧目标文件仍在，可唯一解析），再执行移动
+    if payload.refactor_links:
+        try:
+            refactor_links(
+                vault, request.app.state.db, request.app.state.history,
+                request.app.state.indexer, _rag(request),
+                payload.src, payload.dst,
+            )
+        except Exception as exc:
+            # 引用更新失败已回滚；移动本身成功，记录警告
+            request.app.state.index_health.record(payload.dst, "index", str(exc))
     node = vault.move(payload.src, payload.dst)
     try:
-        indexer.move_path(payload.src, payload.dst)
-        rag = _rag(request)
-        rag.delete_file(payload.src)
+        request.app.state.indexer.move_path(payload.src, payload.dst)
+        _rag(request).delete_file(payload.src)
         if node.type == "file":
             _reindex_ai(request, node.path)
-    except Exception:
-        pass
+        _health(request).clear(payload.src)
+    except Exception as exc:
+        _health(request).record(payload.dst, "index", str(exc))
     return node
 
 
@@ -155,10 +201,11 @@ def delete(
 ) -> dict:
     vault.delete(path)
     try:
-        indexer.delete_path(path)
+        request.app.state.indexer.delete_path(path)
         _rag(request).delete_file(path)
-    except Exception:
-        pass
+        _health(request).clear(path)
+    except Exception as exc:
+        _health(request).record(path, "index", str(exc))
     return {"ok": True}
 
 
@@ -171,11 +218,8 @@ def restore(
 ) -> NodeInfo:
     node = vault.restore(payload.path, payload.target)
     if node.type == "file":
-        try:
-            indexer.index_file(node.path)
-            _reindex_ai(request, node.path)
-        except Exception:
-            pass
+        _safe_index(request, node.path, "index")
+        _safe_index(request, node.path, "rag")
     return node
 
 

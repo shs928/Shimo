@@ -73,13 +73,19 @@ def stream_agent(ctx, settings, messages: list[dict], max_iterations: int = 8,
             name = tc.name
             yield {"type": "tool_call", "tool": name, "args": args}
 
-            if name in tool_mod.WRITE_TOOLS and settings.tool_enabled(name):
+            # 统一授权（fail-closed）：未知/禁用/非 allowlist → 拒绝；
+            # 写工具与 MCP 工具 → 确认；只读 → 直接执行
+            decision = tool_mod.authorize(ctx, name)
+            if decision == "reject":
+                status, result = "denied", "工具未启用或不在允许列表，已拒绝"
+                yield {"type": "tool_result", "tool": name, "status": status, "result": result}
+            elif decision == "confirm":
                 request_id = uuid.uuid4().hex
                 pend = PendingConfirm(tool=name, summary=tool_mod.tool_summary(name, args))
                 ctx.registry.register(request_id, pend)
                 yield {"type": "confirm", "request_id": request_id, "tool": name, "summary": pend.summary}
-                decision = ctx.registry.wait(request_id, timeout=60)
-                if decision != "allow":
+                decision2 = ctx.registry.wait(request_id, timeout=60)
+                if decision2 != "allow":
                     status, result = "denied", "用户拒绝执行该操作"
                     yield {"type": "confirm_denied", "tool": name}
                 else:
@@ -95,3 +101,6 @@ def stream_agent(ctx, settings, messages: list[dict], max_iterations: int = 8,
                 "name": name,
                 "content": result,
             })
+    else:
+        # for-else：循环耗尽（模型持续要求工具但已达 max_iterations）
+        yield {"type": "error", "error": f"已达到最大迭代轮数（{max_iterations}），任务可能未完成"}

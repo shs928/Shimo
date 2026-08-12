@@ -133,6 +133,9 @@ def test_free_chat_session_management(client: TestClient):
     r = client.post("/api/v1/ai/chat/session")
     assert r.status_code == 200
     sid = r.json()["session_id"]
+    r = client.get("/api/v1/ai/chat/session")
+    assert r.status_code == 200
+    assert any(s["id"] == sid for s in r.json()["sessions"])
 
     # 未启用时 free 模式返回明确错误
     r = client.post("/api/v1/ai/chat", json={"message": "你好", "mode": "free", "session_id": sid})
@@ -140,6 +143,40 @@ def test_free_chat_session_management(client: TestClient):
 
     r = client.delete(f"/api/v1/ai/chat/session/{sid}")
     assert r.json()["ok"] is True
+    assert client.get("/api/v1/ai/chat/session").json()["sessions"] == []
+
+
+def test_free_chat_session_persisted(client: TestClient, monkeypatch):
+    """自由对话持久化：SSE 返回 session 事件；会话落盘；标题取首条问题。"""
+    import app.routers.chat as chat_mod
+
+    client.post("/api/v1/ai/config", json={
+        "enabled": True,
+        "providers": [{"id": "p1", "name": "甲", "base_url": "https://a.com/v1", "api_key": "k", "models": []}],
+        "chat": {"provider_id": "p1", "model": "m"},
+    })
+
+    def fake_stream(cfg, messages, temperature=0.3, max_tokens=1024):
+        yield "你好！"
+
+    monkeypatch.setattr(chat_mod, "stream_chat", fake_stream)
+
+    r = client.post("/api/v1/ai/chat", json={"message": "介绍一下知识库", "mode": "free"})
+    assert r.status_code == 200
+    assert '"type": "session"' in r.text  # 未传 session_id 也自动创建并返回
+    assert "你好！" in r.text
+
+    from app.services.chat_sessions import ChatSessionStore
+
+    store = client.app.state.chat_sessions
+    assert isinstance(store, ChatSessionStore)
+    sessions = client.get("/api/v1/ai/chat/session").json()["sessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["title"] == "介绍一下知识库"
+
+    # 重启语义：从文件重新加载仍有会话
+    fresh = ChatSessionStore(store.path)
+    assert len(fresh.ls()) == 1
 
 
 def test_action_endpoint_error_when_disabled(client: TestClient):
@@ -269,3 +306,168 @@ def test_move_document_reindexes(client: TestClient):
 def _create(client: TestClient, path: str, content: str) -> None:
     r = client.post("/api/v1/files", json={"path": path, "type": "file", "initial_content": content})
     assert r.status_code == 200, r.text
+
+
+# ---------- 3.1 Embedding 模型签名重建 ----------
+
+
+def _configure_embedding(client: TestClient, model: str, enabled: bool = True) -> dict:
+    r = client.post("/api/v1/ai/config", json={
+        "enabled": enabled,
+        "providers": [{"id": "p1", "name": "甲", "base_url": "https://a.com/v1", "api_key": "k", "models": []}],
+        "embedding": {"provider_id": "p1", "model": model, "batch": 8},
+    })
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_embedding_signature_first_save_no_reset(client: TestClient):
+    """首次保存：写签名但不重置（无历史向量）。"""
+    _create(client, "a.md", "# A\n\n内容。\n")
+    client.post("/api/v1/ai/rebuild")
+    data = _configure_embedding(client, "embed-v1")
+    assert data["embedding_changed"] is False
+
+
+def test_embedding_model_change_resets_vectors(client: TestClient):
+    """模型变更：事务删除 embeddings、chunks 全部 ai_indexed=0。"""
+    _create(client, "a.md", "# A\n\n需要嵌入的内容。\n")
+    client.post("/api/v1/ai/rebuild")
+    _configure_embedding(client, "embed-v1")
+
+    db = client.app.state.db
+    conn = db.connect()
+    # 模拟已嵌入：所有 chunks 标记 indexed + 插入向量
+    conn.execute("INSERT INTO embeddings(chunk_id,model,dims,vector) SELECT id,'embed-v1',2,x'0000000000000000' FROM chunks")
+    conn.execute("UPDATE chunks SET ai_indexed=1")
+    conn.commit()
+    assert conn.execute("SELECT count(*) FROM embeddings").fetchone()[0] >= 1
+
+    data = _configure_embedding(client, "embed-v2")
+    assert data["embedding_changed"] is True
+    conn = db.connect()
+    assert conn.execute("SELECT count(*) FROM embeddings").fetchone()[0] == 0
+    assert conn.execute("SELECT count(*) FROM chunks WHERE ai_indexed=0").fetchone()[0] >= 1
+
+
+def test_embedding_key_change_does_not_rebuild(client: TestClient):
+    """仅 api_key 变化：不重建（Key 不参与签名）。"""
+    _create(client, "a.md", "# A\n\n内容。\n")
+    client.post("/api/v1/ai/rebuild")
+    _configure_embedding(client, "embed-v1")
+    db = client.app.state.db
+    conn = db.connect()
+    conn.execute("UPDATE chunks SET ai_indexed=1")
+    conn.commit()
+
+    r = client.post("/api/v1/ai/config", json={
+        "enabled": True,
+        "providers": [{"id": "p1", "name": "甲", "base_url": "https://a.com/v1", "api_key": "new-key", "models": []}],
+        "embedding": {"provider_id": "p1", "model": "embed-v1"},
+    })
+    assert r.status_code == 200
+    assert r.json()["embedding_changed"] is False
+    conn = db.connect()
+    assert conn.execute("SELECT count(*) FROM chunks WHERE ai_indexed=1").fetchone()[0] >= 1
+
+
+# ---------- 3.2 向量批次严格校验 ----------
+
+
+def test_store_embeddings_strict_validation(client: TestClient):
+    from app.rag.retriever import RagIndexer
+
+    _create(client, "a.md", "# A\n\n" + "校验内容段落。" * 300 + "\n\n## 第二节\n\n更多内容。\n")
+    client.post("/api/v1/ai/rebuild")
+    rag: RagIndexer = client.app.state.rag
+    pending = rag.pending_chunks(8)
+    assert len(pending) >= 2  # 长内容产生多块，供混合维度构造
+
+    # 数量不一致 → ValueError
+    import pytest
+
+    ids = [cid for cid, _ in pending]
+    with pytest.raises(ValueError, match="不一致"):
+        rag.store_embeddings(ids, [[0.1] * 4] * (len(ids) + 1), "m")
+    # 维度不一致 → ValueError（混合维度）
+    mixed = [[0.1] * 4] * (len(pending) - 1) + [[0.1] * 5]
+    with pytest.raises(ValueError, match="维度"):
+        rag.store_embeddings([cid for cid, _ in pending], mixed, "m")
+    # 空向量 → ValueError
+    with pytest.raises(ValueError, match="空向量"):
+        rag.store_embeddings([cid for cid, _ in pending], [[]] * len(pending), "m")
+
+    # 失败后 chunks 仍为未嵌入（可重试，不静默标完成）
+    conn = rag.db.connect()
+    assert conn.execute("SELECT count(*) FROM chunks WHERE ai_indexed=1").fetchone()[0] == 0
+
+    # 合法批次：只标记写入的 chunk
+    rag.store_embeddings([cid for cid, _ in pending], [[0.25] * 4] * len(pending), "m")
+    conn = rag.db.connect()
+    assert conn.execute("SELECT count(*) FROM chunks WHERE ai_indexed=1").fetchone()[0] == len(pending)
+    assert conn.execute("SELECT count(*) FROM embeddings").fetchone()[0] == len(pending)
+
+
+# ---------- 2.5 普通索引重建不得删除 RAG 数据 ----------
+
+
+def test_normal_rebuild_preserves_embeddings(client: TestClient):
+    """/index/rebuild（普通索引）后：chunks/embeddings 保留（id/model/vector 在）。"""
+    _create(client, "rag-note.md", "# RAG 笔记\n\n嵌入向量要保留。\n")
+    client.post("/api/v1/ai/rebuild")
+
+    db = client.app.state.db
+    conn = db.connect()
+    before_chunks = conn.execute("SELECT count(*) FROM chunks").fetchone()[0]
+    assert before_chunks >= 1
+
+    # 手工插入一条向量，模拟已嵌入状态
+    conn.execute(
+        "INSERT INTO embeddings(chunk_id,model,dims,vector) SELECT id,'test-model',2,x'0000000000000000' FROM chunks WHERE file_path='rag-note.md' LIMIT 1"
+    )
+    conn.commit()
+    emb_row = conn.execute("SELECT chunk_id,model FROM embeddings LIMIT 1").fetchone()
+    assert emb_row is not None
+
+    # 普通索引重建（不是 /ai/rebuild）
+    r = client.post("/api/v1/index/rebuild")
+    assert r.status_code == 200, r.text
+
+    conn = db.connect()
+    after_chunks = conn.execute("SELECT count(*) FROM chunks").fetchone()[0]
+    assert after_chunks == before_chunks  # chunks 保留
+    kept = conn.execute("SELECT chunk_id,model FROM embeddings LIMIT 1").fetchone()
+    assert kept is not None
+    assert kept["chunk_id"] == emb_row["chunk_id"]
+    assert kept["model"] == "test-model"
+
+
+def test_normal_rebuild_cleans_stale_markdown(client: TestClient):
+    """普通重建清理 Vault 已不存在的 Markdown 行，但保留文档占位。"""
+    _create(client, "stale.md", "# 将要删除\n")
+    _import(client, "", "keep.txt", "文档内容 keepme99。".encode("utf-8"))
+
+    db = client.app.state.db
+    conn = db.connect()
+    conn.execute("SELECT count(*) FROM files_meta WHERE path='stale.md'").fetchone()
+    conn.execute("SELECT count(*) FROM files_meta WHERE path='keep.txt'").fetchone()
+
+    # 删除 stale.md（走回收站 → files_meta 应已被清理），再直接向 db 插入一条 stale 记录
+    import sqlite3
+
+    from app.services.vault import Vault
+
+    vault: Vault = client.app.state.vault
+    vault.delete("stale.md")
+    conn.execute(
+        "INSERT INTO files_meta(path,title,mtime_ns,size,sha1,tags,indexed_at) VALUES('ghost.md','ghost',1,1,'x','','now')"
+    )
+    conn.commit()
+
+    r = client.post("/api/v1/index/rebuild")
+    assert r.status_code == 200, r.text
+
+    conn = db.connect()
+    assert conn.execute("SELECT count(*) FROM files_meta WHERE path='ghost.md'").fetchone()[0] == 0
+    # 文档占位保留（非 .md）
+    assert conn.execute("SELECT count(*) FROM files_meta WHERE path='keep.txt'").fetchone()[0] == 1

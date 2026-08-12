@@ -48,11 +48,21 @@ def _ctx(request: Request) -> ToolContext:
         registry=request.app.state.agent_registry,
         mcp_manager=request.app.state.mcp_manager,
         ai_store=request.app.state.ai_store,
+        history=request.app.state.history,
     )
 
 
 def _sse(payload: dict) -> str:
     return "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
+
+
+def _ensure_assistant(history: list[dict]) -> dict:
+    """取最后一个 assistant 消息；没有则创建（用于累积正文增量）。"""
+    if history and history[-1].get("role") == "assistant":
+        return history[-1]
+    msg = {"role": "assistant", "content": ""}
+    history.append(msg)
+    return msg
 
 
 @router.post("/chat")
@@ -77,20 +87,39 @@ def agent_chat(payload: AgentChatIn, request: Request) -> StreamingResponse:
 
     def event_stream():
         seen_error = False
-        full = []
+        # 完整历史：正文增量 + 工具调用 + 执行结果 + 确认结果（不止可见文本）
+        full_history: list[dict] = []
+        pending_tool: dict | None = None
         try:
             for ev in stream_agent(ctx, s, messages, max_iterations=s.agent.max_iterations,
                                    temperature=s.chat.temperature, max_tokens=s.chat.max_tokens):
-                if ev["type"] == "delta":
-                    full.append(ev["content"])
-                elif ev["type"] == "error":
+                etype = ev["type"]
+                if etype == "delta":
+                    _ensure_assistant(full_history)["content"] += ev["content"]
+                elif etype == "tool_call":
+                    pending_tool = {"role": "tool_call", "tool": ev["tool"], "args": ev["args"]}
+                    full_history.append(pending_tool)
+                elif etype == "confirm":
+                    if pending_tool is not None:
+                        pending_tool["status"] = "awaiting_confirm"
+                        pending_tool["request_id"] = ev["request_id"]
+                elif etype == "confirm_denied":
+                    if pending_tool is not None:
+                        pending_tool["status"] = "denied"
+                elif etype == "tool_result":
+                    if pending_tool is not None:
+                        pending_tool["status"] = ev["status"]
+                        pending_tool["result"] = ev["result"]
+                    pending_tool = None
+                elif etype == "error":
                     seen_error = True
                 yield _sse(ev)
         finally:
-            # 保存会话：用户消息 + 完整助手正文（跳过工具中间产物，模型上下文由历史保留）
-            if payload.session_id and full:
-                sessions.save(payload.session_id, [*history, {"role": "user", "content": payload.message},
-                                                   {"role": "assistant", "content": "".join(full)}])
+            # 持久化完整 Agent history；标题默认取首条用户问题
+            if payload.session_id:
+                saved_history = [*history, {"role": "user", "content": payload.message}, *full_history]
+                title = (payload.message or "").strip()[:30] or None
+                sessions.save(payload.session_id, saved_history, title=title)
         if not seen_error:
             yield _sse({"type": "done"})
 
@@ -145,11 +174,13 @@ def ls_tools(request: Request) -> dict:
             "write": name in WRITE_TOOLS,
         })
     for entry in ctx.mcp_manager.tool_entries():
+        full = entry["name"]  # 形如 mcp__server__tool
         tools.append({
-            "name": entry["name"],
+            "name": full,
             "description": entry["description"],
-            "enabled": True,
-            "write": False,
+            # MCP 工具默认禁用，需显式 allowlist；写入性质未知 → 一律需确认
+            "enabled": s.tool_enabled(full),
+            "write": True,
         })
     return {"tools": tools}
 
@@ -163,5 +194,8 @@ def get_system_prompt(request: Request) -> dict:
 @router.get("/mcp/status")
 def mcp_status(request: Request) -> dict:
     s = request.app.state.ai_store.load()
-    request.app.state.mcp_manager.configure(s.mcp_servers)
-    return {"servers": request.app.state.mcp_manager.status()}
+    try:
+        request.app.state.mcp_manager.configure(s.mcp_servers)
+        return {"servers": request.app.state.mcp_manager.status(), "error": None}
+    except Exception as exc:
+        return {"servers": request.app.state.mcp_manager.status(), "error": str(exc)}

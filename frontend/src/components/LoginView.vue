@@ -39,7 +39,10 @@ async function submit(): Promise<void> {
 <template>
   <div class="login-wrap">
     <form class="login-card" @submit.prevent="submit">
-      <h1>拾墨</h1>
+      <div class="login-brand">
+        <h1>拾墨</h1>
+        <small>收集知识碎片</small>
+      </div>
       <p class="login-hint">
         {{ initialized ? '输入访问密码继续' : '首次使用，请设置访问密码' }}
       </p>
@@ -52,7 +55,7 @@ async function submit(): Promise<void> {
         autocomplete="new-password"
       />
       <p v-if="error" class="login-error">{{ error }}</p>
-      <button type="submit" :disabled="busy">{{ busy ? '请稍候…' : initialized ? '登录' : '初始化并进入' }}</button>
+      <button class="btn btn--primary" type="submit" :disabled="busy">{{ busy ? '请稍候…' : initialized ? '登录' : '初始化并进入' }}</button>
     </form>
   </div>
 </template>

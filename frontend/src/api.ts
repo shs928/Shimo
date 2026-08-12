@@ -33,6 +33,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   status: () => request<{ initialized: boolean; authenticated: boolean }>('/api/v1/auth/status'),
 
+  /** 实时事件 SSE（文件树/文件变化）；返回原始 Response 由调用方解析 */
+  events: (signal?: AbortSignal) =>
+    fetch('/api/v1/events', { credentials: 'same-origin', signal }),
+
   init: (password: string) =>
     request<{ ok: boolean }>('/api/v1/auth/init', { method: 'POST', body: JSON.stringify({ password }) }),
 
@@ -60,15 +64,15 @@ export const api = {
     }),
 
   movePreview: (src: string, dst: string) =>
-    request<MovePlan>('/api/v1/files/move/preview', {
+    request<MovePlan & { affected_links: number; affected_files: string[] }>('/api/v1/files/move/preview', {
       method: 'POST',
       body: JSON.stringify({ src, dst }),
     }),
 
-  move: (src: string, dst: string) =>
+  move: (src: string, dst: string, refactorLinks = false) =>
     request<NodeInfo>('/api/v1/files/move', {
       method: 'POST',
-      body: JSON.stringify({ src, dst }),
+      body: JSON.stringify({ src, dst, refactor_links: refactorLinks }),
     }),
 
   remove: (path: string) =>
@@ -120,6 +124,34 @@ export const api = {
       `/api/v1/files/outline?path=${encodeURIComponent(path)}`,
     ),
 
+  /** 版本历史：列表 / 读取 / diff / 恢复 */
+  historyList: (path: string) =>
+    request<{ path: string; versions: Array<{ sha1: string; saved_at: string }> }>(
+      `/api/v1/history?path=${encodeURIComponent(path)}`,
+    ),
+
+  historyGet: (path: string, sha1: string) =>
+    request<{ path: string; sha1: string; content: string }>(
+      `/api/v1/history/version?path=${encodeURIComponent(path)}&sha1=${encodeURIComponent(sha1)}`,
+    ),
+
+  historyDiff: (path: string, sha1: string) =>
+    request<{ path: string; sha1: string; diff: string }>(
+      `/api/v1/history/diff?path=${encodeURIComponent(path)}&sha1=${encodeURIComponent(sha1)}`,
+    ),
+
+  historyRestore: (path: string, sha1: string) =>
+    request<{ ok: boolean; path: string; content: string }>(
+      `/api/v1/history/restore?path=${encodeURIComponent(path)}&sha1=${encodeURIComponent(sha1)}`,
+      { method: 'POST' },
+    ),
+
+  /** 文档只读预览（PDF/Word/TXT/CSV 纯文本提取） */
+  documentPreview: (path: string) =>
+    request<{ path: string; name: string; size: number; chars: number; truncated: boolean; text: string }>(
+      `/api/v1/documents/preview?path=${encodeURIComponent(path)}`,
+    ),
+
   /** WikiLink 目标解析：当前目录优先，其次根目录，最后唯一文件名；歧义返回 null */
   resolveWiki: (link: string, dir: string) =>
     request<{ path: string | null }>(
@@ -165,9 +197,19 @@ export const api = {
     }>(`/api/v1/graph?path=${encodeURIComponent(path)}`),
 
   indexStats: () =>
-    request<{ files: number; links: number; unresolved_links: number; tokenizer: string }>(
-      '/api/v1/index/stats',
-    ),
+    request<{
+      files: number
+      links: number
+      unresolved_links: number
+      tokenizer: string
+      failures: Array<{ path: string; subsystem: string; error: string; attempts: number; updated_at: string }>
+      failure_count: number
+    }>('/api/v1/index/stats'),
+
+  indexRetryFailed: () =>
+    request<{ retried: number; cleared: number; still_failed: number }>('/api/v1/index/retry-failed', {
+      method: 'POST',
+    }),
 
   indexRebuild: () =>
     request<{ indexed: number; failed: Array<{ path: string; error: string }>; tokenizer: string }>(
@@ -180,12 +222,13 @@ export const api = {
       enabled: boolean
       chat_configured: boolean
       embed_configured: boolean
+      embedding_active: boolean
       agent_configured: boolean
       providers: number
       chunks: number
       embedded: number
       has_vectors: boolean
-      embedding_running: boolean
+      worker_alive: boolean
       mcp_servers: number
     }>('/api/v1/ai/status'),
 
@@ -196,6 +239,7 @@ export const api = {
       chat: { provider_id: string; model: string; temperature: number; max_tokens: number; max_history_messages: number }
       embedding: { provider_id: string; model: string; batch: number }
       rerank: { enabled: boolean; provider_id: string; model: string }
+      vision: { provider_id: string; model: string }
       agent: { provider_id: string; model: string; max_iterations: number; system_prompt: string; tools: Record<string, boolean> }
       mcp: { servers: Array<{ name: string; url: string }> }
     }>('/api/v1/ai/config'),
@@ -206,13 +250,17 @@ export const api = {
     chat?: Record<string, unknown>
     embedding?: Record<string, unknown>
     rerank?: Record<string, unknown>
+    vision?: Record<string, unknown>
     agent?: Record<string, unknown>
     mcp?: { servers: Array<{ name: string; url: string }> }
   }) =>
-    request<{ enabled: boolean; chat_configured: boolean; embed_configured: boolean; providers: number }>(
-      '/api/v1/ai/config',
-      { method: 'POST', body: JSON.stringify(payload) },
-    ),
+    request<{
+      enabled: boolean
+      chat_configured: boolean
+      embed_configured: boolean
+      providers: number
+      embedding_changed: boolean
+    }>('/api/v1/ai/config', { method: 'POST', body: JSON.stringify(payload) }),
 
   aiTest: () =>
     request<{ ok: boolean; message: string }>('/api/v1/ai/test', { method: 'POST' }),
@@ -224,7 +272,9 @@ export const api = {
     ),
 
   aiEmbeddingStat: () =>
-    request<{ running: boolean; pending: number; embedded: number; total: number }>('/api/v1/ai/embedding-stat'),
+    request<{ running: boolean; pending: number; embedded: number; total: number; last_error: string | null; backoff_seconds: number }>(
+      '/api/v1/ai/embedding-stat',
+    ),
 
   aiListModels: (providerId: string) =>
     request<{ ok: boolean; models: string[]; message: string }>('/api/v1/ai/list-models', {
@@ -250,6 +300,14 @@ export const api = {
 
   aiNewSession: () =>
     request<{ session_id: string }>('/api/v1/ai/chat/session', { method: 'POST' }),
+
+  aiChatSessions: () =>
+    request<{ sessions: Array<{ id: string; title: string; updated_at: string }> }>('/api/v1/ai/chat/session'),
+
+  aiChatGetSession: (sessionId: string) =>
+    request<{ session: { id: string; title: string; messages: unknown[]; updated_at: string } | null }>(
+      `/api/v1/ai/chat/session/${encodeURIComponent(sessionId)}`,
+    ),
 
   aiClearSession: (sessionId: string) =>
     request<{ ok: boolean }>(`/api/v1/ai/chat/session/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
@@ -282,6 +340,9 @@ export const api = {
 
   aiAgentSessions: () =>
     request<{ sessions: Array<{ id: string; title: string; updated_at: string }> }>('/api/v1/ai/agent/sessions'),
+
+  aiAgentCreateSession: () =>
+    request<{ session_id: string }>('/api/v1/ai/agent/session', { method: 'POST' }),
 
   aiAgentSession: (sessionId: string) =>
     request<{ session: { id: string; title: string; messages: unknown[]; updated_at: string } | null }>(

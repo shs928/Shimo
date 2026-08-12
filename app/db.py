@@ -90,6 +90,15 @@ CREATE TABLE IF NOT EXISTS embeddings (
     vector     BLOB NOT NULL,
     FOREIGN KEY(chunk_id) REFERENCES chunks(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS index_failures (
+    path        TEXT NOT NULL,
+    subsystem   TEXT NOT NULL,
+    error       TEXT NOT NULL,
+    attempts    INTEGER NOT NULL DEFAULT 1,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY(path, subsystem)
+);
 """
 
 
@@ -139,14 +148,41 @@ class Database:
             conn.executescript(_SCHEMA)
             self._migrate_files_meta(conn)
             self.fts_tokenizer = _ensure_fts(conn)
-            self.needs_rebuild = self._schema_version_changed(conn)
+            # 只检测版本，不写回；重建成功后由 mark_schema_current() 标记
+            self.needs_rebuild = self._check_schema_version(conn)
 
-    def _schema_version_changed(self, conn: sqlite3.Connection) -> bool:
+    def _check_schema_version(self, conn: sqlite3.Connection) -> bool:
+        """检测 schema 版本是否需要重建；仅在需要时返回 True。
+
+        - 首次（无版本记录）：需要重建（此时不写回）
+        - 版本低于程序版本：需要重建
+        - 版本高于程序版本：拒绝降级，明确报错
+        - 损坏版本：明确报错
+        """
         row = conn.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()
         if row is None:
-            conn.execute("INSERT OR REPLACE INTO schema_meta(key,value) VALUES('version',?)", (str(_SCHEMA_VERSION),))
             return True
-        return row[0] != str(_SCHEMA_VERSION)
+        raw = row[0]
+        try:
+            current = int(raw)
+        except (TypeError, ValueError):
+            raise RuntimeError(
+                f"数据库 schema 版本损坏：{raw!r}；请删除 data/index.db 后重启"
+            ) from None
+        if current > _SCHEMA_VERSION:
+            raise RuntimeError(
+                f"数据库 schema 版本 {current} 高于程序支持的 {_SCHEMA_VERSION}，"
+                "拒绝降级；请升级程序，或删除 data/index.db 后重启"
+            )
+        return current != _SCHEMA_VERSION
+
+    def mark_schema_current(self) -> None:
+        """仅在重建/迁移成功后调用：写回当前版本。"""
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_meta(key,value) VALUES('version',?)",
+                (str(_SCHEMA_VERSION),),
+            )
 
     @staticmethod
     def _migrate_files_meta(conn: sqlite3.Connection) -> None:

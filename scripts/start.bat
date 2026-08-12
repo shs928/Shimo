@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 rem This file is in scripts\; run all commands from the project root.
 pushd "%~dp0.." >nul
@@ -24,13 +24,29 @@ echo [first run] Creating virtual environment...
 if errorlevel 1 goto venv_error
 
 :venv_ready
+rem requirements hash detection: reinstall when the dependency list changes
+set "REQ_HASH_FILE=%ROOT%\.venv\.requirements-hash"
+set "CURRENT_HASH="
+for /f "usebackq delims=" %%h in (`certutil -hashfile "%ROOT%\requirements.txt" SHA256 ^| findstr /v "hash" ^| findstr /v ":"`) do set "CURRENT_HASH=!CURRENT_HASH!%%h"
+set "INSTALLED_HASH="
+if exist "%REQ_HASH_FILE%" set /p INSTALLED_HASH=<"%REQ_HASH_FILE%"
+if "%CURRENT_HASH%"=="" goto deps_import_check
+if "%CURRENT_HASH%"=="%INSTALLED_HASH%" goto deps_import_check
+echo [install] Dependency list changed; installing backend dependencies...
+"%VENV_PYTHON%" -m pip install -r "%ROOT%\requirements.txt"
+if errorlevel 1 goto pip_error
+echo %CURRENT_HASH%> "%REQ_HASH_FILE%"
+goto deps_ready
+
+:deps_import_check
 "%VENV_PYTHON%" -c "import fastapi, uvicorn, argon2" >nul 2>nul
-if not errorlevel 1 goto dependencies_ready
+if not errorlevel 1 goto deps_ready
 echo [first run] Installing Python dependencies...
 "%VENV_PYTHON%" -m pip install -r "%ROOT%\requirements.txt"
 if errorlevel 1 goto pip_error
+echo %CURRENT_HASH%> "%REQ_HASH_FILE%"
 
-:dependencies_ready
+:deps_ready
 if exist "%ROOT%\frontend\dist\index.html" goto frontend_ready
 goto frontend_error
 

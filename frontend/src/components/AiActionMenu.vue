@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
-import { Square, X } from 'lucide-vue-next'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { CheckCircle2, Lightbulb, PenLine, RefreshCw, Square, Wand2, X } from 'lucide-vue-next'
 import { api } from '../api'
+import IconButton from './IconButton.vue'
 
 const props = defineProps<{
   x: number
@@ -16,11 +17,11 @@ const emit = defineEmits<{
 }>()
 
 const ACTIONS = [
-  { id: 'continue', label: '✍ 续写' },
-  { id: 'summary', label: '📝 提取摘要' },
-  { id: 'brainstorm', label: '💡 头脑风暴' },
-  { id: 'grammar', label: '✅ 语法/拼写修正' },
-  { id: 'rewrite', label: '🔄 改写润色' },
+  { id: 'continue', label: '续写', icon: PenLine },
+  { id: 'summary', label: '提取摘要', icon: CheckCircle2 },
+  { id: 'brainstorm', label: '头脑风暴', icon: Lightbulb },
+  { id: 'grammar', label: '语法/拼写修正', icon: Wand2 },
+  { id: 'rewrite', label: '改写润色', icon: RefreshCw },
 ]
 
 const running = ref(false)
@@ -28,12 +29,16 @@ const result = ref('')
 const error = ref('')
 const currentAction = ref('')
 const customPrompt = ref('')
+const focusedIndex = ref(0)
+const menuEl = ref<HTMLElement | null>(null)
 let controller: AbortController | null = null
 
+/** 视口碰撞：菜单始终完整落在视口内 */
 const menuStyle = computed(() => {
-  const width = 260
-  const x = Math.min(props.x, window.innerWidth - width - 8)
-  const y = Math.min(props.y, window.innerHeight - 120)
+  const width = 264
+  const height = 340
+  const x = Math.max(8, Math.min(props.x, window.innerWidth - width - 8))
+  const y = Math.max(8, Math.min(props.y, window.innerHeight - height - 8))
   return { left: `${x}px`, top: `${y}px` }
 })
 
@@ -96,18 +101,65 @@ function close(): void {
   emit('close')
 }
 
-onBeforeUnmount(() => controller?.abort())
+/** 键盘导航：↑↓ 循环、Enter 执行、Escape 关闭 */
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    close()
+    return
+  }
+  if (running.value || result.value) return
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    focusedIndex.value = (focusedIndex.value + 1) % ACTIONS.length
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    focusedIndex.value = (focusedIndex.value - 1 + ACTIONS.length) % ACTIONS.length
+  } else if (e.key === 'Enter') {
+    const a = ACTIONS[focusedIndex.value]
+    if (a) {
+      e.preventDefault()
+      void run(a.id, a.label)
+    }
+  }
+}
+
+onMounted(() => {
+  menuEl.value?.querySelector<HTMLElement>('.ai-action-item')?.focus()
+  menuEl.value?.addEventListener('keydown', onKeydown)
+})
+
+onBeforeUnmount(() => {
+  controller?.abort()
+  menuEl.value?.removeEventListener('keydown', onKeydown)
+})
 </script>
 
 <template>
-  <div class="ai-action-menu" :style="menuStyle" @click.stop>
+  <div
+    ref="menuEl"
+    class="ai-action-menu"
+    :style="menuStyle"
+    role="menu"
+    aria-label="AI 操作"
+    tabindex="-1"
+    @click.stop
+  >
     <div class="ai-action-menu-head">
       <span>AI 操作</span>
-      <button class="icon-btn" title="关闭" @click="close"><X :size="13" /></button>
+      <IconButton title="关闭 (Esc)" @click="close"><X :size="13" /></IconButton>
     </div>
 
     <template v-if="!running && !result">
-      <button v-for="a in ACTIONS" :key="a.id" class="ai-action-item" @click="run(a.id, a.label)">
+      <button
+        v-for="(a, i) in ACTIONS"
+        :key="a.id"
+        class="ai-action-item"
+        :class="{ focused: i === focusedIndex }"
+        role="menuitem"
+        @click="run(a.id, a.label)"
+      >
+        <component :is="a.icon" :size="13" />
         {{ a.label }}
       </button>
       <div class="ai-action-custom">
@@ -123,15 +175,15 @@ onBeforeUnmount(() => controller?.abort())
       <div class="ai-action-status">{{ currentAction }}{{ running ? '…' : '' }}</div>
       <div class="ai-action-result">{{ error || result || '…' }}</div>
       <div v-if="result && !error" class="ai-action-actions">
-        <button @click="applyResult(false)">插入到选中后</button>
-        <button @click="applyResult(true)">替换选中</button>
-        <button class="icon-btn" title="重新生成" @click="run('custom', currentAction)">↻</button>
+        <button class="btn" @click="applyResult(false)">插入到选中后</button>
+        <button class="btn" @click="applyResult(true)">替换选中</button>
+        <IconButton title="重新生成" @click="run('custom', currentAction)"><RefreshCw :size="13" /></IconButton>
       </div>
       <div v-if="error" class="ai-action-actions">
-        <button @click="close">关闭</button>
+        <button class="btn" @click="close">关闭</button>
       </div>
     </template>
 
-    <button v-if="running" class="icon-btn ai-action-stop" title="停止" @click="stop"><Square :size="13" /></button>
+    <IconButton v-if="running" class="ai-action-stop" title="停止" @click="stop"><Square :size="13" /></IconButton>
   </div>
 </template>

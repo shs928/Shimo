@@ -132,7 +132,7 @@ WRITE_TOOLS = {"create_note", "update_note", "image.generate"}
 class ToolContext:
     """处理器所需的运行时依赖，由路由按请求注入。"""
 
-    def __init__(self, vault: Vault, indexer, rag, settings_provider, registry, mcp_manager, ai_store):
+    def __init__(self, vault: Vault, indexer, rag, settings_provider, registry, mcp_manager, ai_store, history=None):
         self.vault = vault
         self.indexer = indexer
         self.rag = rag
@@ -140,21 +140,51 @@ class ToolContext:
         self.registry = registry
         self.mcp_manager = mcp_manager
         self.ai_store = ai_store
+        self.history = history  # HistoryStore | None（Agent 更新进入历史链路）
 
 
 def enabled_schemas(ctx: ToolContext) -> list[dict]:
+    """拼 Agent 的 tools 参数：启用的原生工具 + allowlist 内的 MCP 工具。
+
+    MCP 工具默认不注入（fail-closed）：只有 agent.tools 中显式开启的
+    `mcp__server__tool` 键才出现在 schema 中。构建前先按需发现（带 TTL）。
+    """
     s = ctx.settings_provider()
     schemas = [t for t in TOOL_SCHEMAS if s.tool_enabled(t["function"]["name"])]
+    for name in ctx.mcp_manager.server_names():
+        ctx.mcp_manager.ensure_connected(name)
     for tool in ctx.mcp_manager.tool_entries():
+        full = f"mcp__{tool['server']}__{tool['name']}"
+        if not s.tool_enabled(full):
+            continue
         schemas.append({
             "type": "function",
             "function": {
-                "name": tool["name"],
+                "name": full,
                 "description": f"[MCP:{tool['server']}] {tool['description']}",
                 "parameters": tool["input_schema"] or {"type": "object", "properties": {}},
             },
         })
     return schemas
+
+
+def authorize(ctx: ToolContext, name: str) -> str:
+    """统一授权（fail-closed）：每次执行前重新读取最新配置。
+
+    返回：
+      "run"     只读且启用
+      "confirm" 有副作用且启用（写工具 / MCP 工具一律需确认）
+      "reject"  未知、被禁用、或 MCP 不在 allowlist
+    """
+    s = ctx.settings_provider()
+    if name.startswith("mcp__"):
+        # MCP 工具外部副作用未知：默认需确认，未在 allowlist 中 → 拒绝
+        return "confirm" if s.tool_enabled(name) else "reject"
+    if name not in TOOL_NAMES:
+        return "reject"
+    if not s.tool_enabled(name):
+        return "reject"
+    return "confirm" if name in WRITE_TOOLS else "run"
 
 
 def tool_summary(name: str, args: dict) -> str:
@@ -169,7 +199,19 @@ def tool_summary(name: str, args: dict) -> str:
 
 
 def execute(ctx: ToolContext, name: str, args: dict) -> tuple[str, str]:
-    """执行工具，返回 (status, result_text)。status ∈ ok|error。"""
+    """执行工具，返回 (status, result_text)。status ∈ ok|error。
+
+    二次校验：未知 / 被禁用工具拒绝执行（防止绕过 engine 的授权流程直接调用）。
+    """
+    s = ctx.settings_provider()
+    if name.startswith("mcp__"):
+        if not s.tool_enabled(name):
+            return "error", f"MCP 工具未启用或不在允许列表：{name}"
+    elif name not in TOOL_NAMES:
+        return "error", f"未知工具：{name}"
+    elif not s.tool_enabled(name):
+        return "error", f"工具已禁用：{name}"
+
     try:
         if name == "knowledge_search":
             return _search(ctx, args)
@@ -201,7 +243,8 @@ def _search(ctx: ToolContext, args: dict) -> tuple[str, str]:
     if not query:
         return "error", "缺少 query 参数"
     s = ctx.settings_provider()
-    embed_cfg = s.embedding_config()
+    # 外呼闸门：AI 关闭时 active_embedding_config() 返回 None → FTS-only，不调 Embedding
+    embed_cfg = s.active_embedding_config()
     results = ctx.rag.search(query, k=5, embedding_cfg=embed_cfg)
     if not results:
         return "ok", "知识库中没有检索到相关内容。"
@@ -270,7 +313,10 @@ def _update(ctx: ToolContext, args: dict) -> tuple[str, str]:
     content = str(args.get("content") or "")
     if not _valid_note_path(path):
         return "error", f"非法笔记路径：{path}"
-    result = ctx.vault.write_markdown(path, content, None)
+    on_before = None
+    if ctx.history is not None:
+        on_before = lambda rel, text, etag: ctx.history.save_snapshot(rel, text)
+    result = ctx.vault.write_markdown(path, content, None, on_before_write=on_before)
     try:
         ctx.indexer.index_file(path)
         ctx.rag.reindex_file(path, result.content)
@@ -281,21 +327,49 @@ def _update(ctx: ToolContext, args: dict) -> tuple[str, str]:
 
 def _analyze(ctx: ToolContext, args: dict) -> tuple[str, str]:
     path = str(args.get("path") or "").strip()
-    full = ctx.vault.root / path
+    if not path:
+        return "error", "缺少 path 参数"
+    # 路径边界：拒绝绝对路径 / .. 穿越 / 符号链接 / 隐藏路径 / 回收站
+    try:
+        from ..services.path_guard import is_hidden_rel, normalize_rel, resolve_in_root
+
+        rel = normalize_rel(path)
+        if is_hidden_rel(rel) or rel.startswith(".trash"):
+            return "error", f"不允许访问隐藏路径或回收站：{path}"
+        full = resolve_in_root(ctx.vault.root, rel)
+    except Exception as exc:
+        return "error", f"非法图片路径：{exc}"
     if not full.is_file():
         return "error", f"文件不存在：{path}"
-    ext = Path(path).suffix.lower()
+    ext = full.suffix.lower()
     if ext not in _IMAGE_EXT:
         return "error", f"不是支持的图片类型：{path}"
-    data = full.read_bytes()
+    # 先 stat 检查原始大小，再读取（避免读入超大文件）
+    try:
+        size = full.stat().st_size
+    except OSError as exc:
+        return "error", f"无法访问文件：{exc}"
+    if size <= 0:
+        return "error", f"图片为空：{path}"
+    if size > 10 * 1024 * 1024:
+        return "error", "图片过大（超过 10MB），无法分析"
+    try:
+        data = full.read_bytes()
+    except OSError as exc:
+        return "error", f"读取失败：{exc}"
+    # Pillow 校验真实图片格式（防止伪装扩展名）
+    from ..services.safe_download import validate_image
+
+    try:
+        validate_image(data)
+    except Exception as exc:
+        return "error", f"不是有效的图片文件：{exc}"
     b64 = base64.b64encode(data).decode("ascii")
     mime = _mime_for(ext)
-    if len(b64) > 10 * 1024 * 1024:
-        return "error", "图片过大（超过 10MB base64），无法分析"
     s = ctx.settings_provider()
-    cfg = s.agent_config()
+    cfg = s.vision_config() or s.agent_config()  # 优先独立 Vision 组，回退 Agent 模型
     if cfg is None:
-        return "error", "未配置 Agent 模型"
+        return "error", "未配置图片理解模型（Vision 或 Agent 配置）"
     from ..rag.provider import chat_complete
 
     result = chat_complete(
@@ -317,27 +391,29 @@ def _generate(ctx: ToolContext, args: dict) -> tuple[str, str]:
     if not prompt:
         return "error", "缺少 prompt 参数"
     s = ctx.settings_provider()
-    cfg = s.agent_config()
+    cfg = s.vision_config() or s.agent_config()  # 优先独立 Vision 组，回退 Agent 模型
     if cfg is None:
-        return "error", "未配置 Agent 模型"
+        return "error", "未配置图片生成模型（Vision 或 Agent 配置）"
     images = generate_image(cfg, prompt)
     if not images:
         return "error", "图片生成服务未返回结果"
     item = images[0]
+
+    from ..services.safe_download import decode_b64, download_image, validate_image
+
     data = item.get("b64_json")
     if data:
-        raw = base64.b64decode(data)
+        raw = decode_b64(data)
     else:
         url = item.get("url")
         if not url:
             return "error", "图片生成服务未返回数据"
-        import httpx
-
-        with httpx.Client(timeout=120) as client:
-            r = client.get(url)
-            r.raise_for_status()
-            raw = r.content
-    rel = ctx.vault.create_unique_asset(f"ai-{_slug(prompt)[:20]}.png", raw)
+        raw = download_image(url)  # SSRF 防护：非公网 IP / 重定向逐跳校验
+    try:
+        ext = validate_image(raw)  # Pillow 校验真实格式，按真实格式保存扩展名
+    except Exception as exc:
+        return "error", f"生成结果不是有效图片：{exc}"
+    rel = ctx.vault.create_unique_asset(f"ai-{_slug(prompt)[:20]}{ext}", raw)
     return "ok", f"图片已保存到 {rel}"
 
 

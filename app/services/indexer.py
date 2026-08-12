@@ -28,7 +28,15 @@ class Indexer:
         self._lock = threading.RLock()
 
     def rebuild(self) -> dict:
-        """清空并从 Vault 全量重建；返回统计。
+        """从 Vault 全量重建普通派生索引（links/tags/FTS/headings）。
+
+        **不删除 files_meta**：chunks/embeddings（RAG 数据）通过外键级联绑定
+        files_meta，清空 files_meta 会连带清掉 RAG 索引。改为：
+        - 清空并重建普通派生表；
+        - 对现有 Markdown upsert 元数据（保留有效父记录）；
+        - 只删除 Vault 已不存在的 stale Markdown 行；
+        - PDF/Word/TXT/CSV 占位元数据（非 .md）保留。
+        整个重建在单个事务内完成，失败自动回滚。
 
         批量解析后统一写库、统一解析链接，避免逐文件触发
         resolve_all_links 造成 O(N²)。
@@ -61,11 +69,16 @@ class Indexer:
             with self.db.connect() as conn:
                 conn.execute("DELETE FROM links")
                 conn.execute("DELETE FROM file_tags")
-                conn.execute("DELETE FROM files_meta")
                 conn.execute("DELETE FROM files_fts")
                 conn.execute("DELETE FROM headings")
                 for rel, title, text, tags, size, sha1, mtime_ns in prepared:
                     _insert_doc(conn, self.vault.root, rel, title, text, tags, size, sha1, mtime_ns)
+                # 清理 stale：Vault 已不存在的 Markdown 行（保留非 .md 占位与 RAG 数据）
+                existing = {row[0] for row in conn.execute("SELECT path FROM files_meta")}
+                live = {p[0] for p in prepared}
+                for path in existing - live:
+                    if path.lower().endswith(".md"):
+                        conn.execute("DELETE FROM files_meta WHERE path=?", (path,))
             self.resolve_all_links()
         return {"indexed": indexed, "failed": failed, "tokenizer": self.db.fts_tokenizer}
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
-import { Search, Loader2 } from 'lucide-vue-next'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Loader2, Search } from 'lucide-vue-next'
 import { api } from '../api'
 import { openTab } from '../store'
 
@@ -17,6 +17,7 @@ const query = ref('')
 const results = ref<Result[]>([])
 const loading = ref(false)
 const activeIndex = ref(-1)
+const listEl = ref<HTMLElement | null>(null)
 
 let timer: number | undefined
 
@@ -24,6 +25,7 @@ async function doSearch(): Promise<void> {
   const q = query.value.trim()
   if (!q) {
     results.value = []
+    activeIndex.value = -1
     return
   }
   loading.value = true
@@ -34,6 +36,7 @@ async function doSearch(): Promise<void> {
   } catch (e) {
     emit('notify', (e as Error).message, 'error')
     results.value = []
+    activeIndex.value = -1
   } finally {
     loading.value = false
   }
@@ -52,11 +55,23 @@ async function openResult(path: string): Promise<void> {
   }
 }
 
-function highlight(text: string, q: string): string {
+/**
+ * 安全高亮：把命中片段拆成文本分片（命中 / 未命中），由 Vue 插值渲染。
+ * 不使用 v-html，查询词永不被当作 HTML。
+ */
+function highlight(text: string): Array<{ seg: string; hit: boolean }> {
+  const q = query.value.trim()
+  if (!q) return [{ seg: text, hit: false }]
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  if (!escaped) return text
-  const re = new RegExp(`(${escaped})`, 'gi')
-  return text.replace(re, '<mark>$1</mark>')
+  let re: RegExp
+  try {
+    re = new RegExp(`(${escaped})`, 'gi')
+  } catch {
+    return [{ seg: text, hit: false }]
+  }
+  const parts = text.split(re).filter(Boolean)
+  const lowerQ = q.toLowerCase()
+  return parts.map((seg) => ({ seg, hit: seg.toLowerCase() === lowerQ }))
 }
 
 function onKeydown(e: KeyboardEvent): void {
@@ -72,9 +87,15 @@ function onKeydown(e: KeyboardEvent): void {
   }
 }
 
+watch(activeIndex, () => {
+  listEl.value?.querySelector('.search-item.active')?.scrollIntoView({ block: 'nearest' })
+})
+
 onMounted(() => {
   if (query.value.trim()) void doSearch()
 })
+
+onBeforeUnmount(() => window.clearTimeout(timer))
 </script>
 
 <template>
@@ -84,6 +105,7 @@ onMounted(() => {
       <input
         v-model="query"
         placeholder="搜索标题、正文、标签、路径"
+        aria-label="全文搜索"
         @keydown="onKeydown"
       />
       <Loader2 v-if="loading" :size="14" class="spin search-icon" />
@@ -91,19 +113,32 @@ onMounted(() => {
 
     <div v-if="results.length === 0 && query.trim() && !loading" class="panel-empty">无匹配结果</div>
 
-    <div class="search-results">
-      <div
+    <div ref="listEl" class="search-results" role="listbox" aria-label="搜索结果">
+      <button
         v-for="(r, i) in results"
         :key="r.path"
+        type="button"
         class="search-item"
         :class="{ active: i === activeIndex }"
+        role="option"
+        :aria-selected="i === activeIndex"
         @click="openResult(r.path)"
         @mouseenter="activeIndex = i"
       >
-        <div class="search-item-title" v-html="highlight(r.title || r.path, query.trim())" />
+        <div class="search-item-title">
+          <template v-for="(p, pi) in highlight(r.title || r.path)" :key="pi">
+            <mark v-if="p.hit">{{ p.seg }}</mark>
+            <template v-else>{{ p.seg }}</template>
+          </template>
+        </div>
         <div class="search-item-path">{{ r.path }}</div>
-        <div v-if="r.snippet" class="search-item-snippet" v-html="highlight(r.snippet, query.trim())" />
-      </div>
+        <div v-if="r.snippet" class="search-item-snippet">
+          <template v-for="(p, pi) in highlight(r.snippet)" :key="pi">
+            <mark v-if="p.hit">{{ p.seg }}</mark>
+            <template v-else>{{ p.seg }}</template>
+          </template>
+        </div>
+      </button>
     </div>
   </div>
 </template>

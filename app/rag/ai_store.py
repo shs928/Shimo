@@ -1,12 +1,13 @@
-"""AI 配置存储：data/ai.json。
+"""AI 配置存储：data/ai.json + 系统凭据库（keyring）。
 
 结构 v2（多 Provider）：
-- providers[]：OpenAI 兼容服务列表（base_url / api_key / models）
+- providers[]：OpenAI 兼容服务列表（base_url / models；**api_key 不落盘**，
+  由 SecretStore 存系统凭据库，运行时加载注入）
 - chat / embedding / rerank / agent：按 provider_id + model 引用
 - mcp.servers：外部 MCP server 列表
 
-兼容：读取旧 v1 结构（chat/embedding 内联 base_url/api_key/model）时自动迁移；
-API Key 只在用户显式保存时写入，环境变量 AI_CHAT_* 等优先。
+兼容：读取旧 v1/v2 明文 api_key 时先写入系统凭据库，成功后原子重写 JSON 删除 Key；
+环境变量 AI_CHAT_* / AI_EMBED_* 优先且永不落盘。
 """
 from __future__ import annotations
 
@@ -17,8 +18,8 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..agent.system_prompt import DEFAULT_AGENT_SYSTEM_PROMPT
 from .provider import ProviderConfig
+from .secret_store import SecretStore, SecretStoreError
 
 DEFAULT_TOOLS: dict = {
     "knowledge_search": True,
@@ -47,7 +48,7 @@ class Provider:
     models: list[str] = field(default_factory=list)
 
     def config(self, model: str) -> ProviderConfig:
-        return ProviderConfig(self.base_url, self.api_key, model)
+        return ProviderConfig(self.base_url, self.api_key, model, provider_id=self.id)
 
 
 @dataclass
@@ -74,6 +75,12 @@ class RerankCfg:
 
 
 @dataclass
+class VisionCfg:
+    provider_id: str = ""
+    model: str = ""
+
+
+@dataclass
 class AgentCfg:
     provider_id: str = ""
     model: str = ""
@@ -86,6 +93,7 @@ class AgentCfg:
 class McpServer:
     name: str
     url: str
+    transport: str = "sse_legacy"  # streamable_http | sse_legacy（旧配置默认迁移为 sse_legacy）
 
 
 @dataclass
@@ -95,11 +103,19 @@ class AiSettings:
     chat: ChatCfg = field(default_factory=ChatCfg)
     embedding: EmbeddingCfg = field(default_factory=EmbeddingCfg)
     rerank: RerankCfg = field(default_factory=RerankCfg)
+    vision: VisionCfg = field(default_factory=VisionCfg)
     agent: AgentCfg = field(default_factory=AgentCfg)
     mcp_servers: list[McpServer] = field(default_factory=list)
 
     def provider(self, pid: str) -> Provider | None:
         return next((p for p in self.providers if p.id == pid), None)
+
+    def vision_config(self) -> ProviderConfig | None:
+        """图片理解 / 图片生成专用配置（独立于 Chat 模型）。"""
+        p = self.provider(self.vision.provider_id)
+        if not p or not p.base_url or not self.vision.model:
+            return None
+        return p.config(self.vision.model)
 
     def chat_config(self) -> ProviderConfig | None:
         p = self.provider(self.chat.provider_id)
@@ -108,10 +124,24 @@ class AiSettings:
         return p.config(self.chat.model)
 
     def embedding_config(self) -> ProviderConfig | None:
+        """已配置（不论是否启用）；用于状态展示与"待嵌入"判断。"""
         p = self.provider(self.embedding.provider_id)
         if not p or not p.base_url or not self.embedding.model:
             return None
         return p.config(self.embedding.model)
+
+    def active_embedding_config(self) -> ProviderConfig | None:
+        """全局外呼闸门：AI 关闭时返回 None，任何调用点不得发起嵌入请求。"""
+        if not self.enabled:
+            return None
+        return self.embedding_config()
+
+    def active_embedding_job(self) -> tuple[ProviderConfig, int] | None:
+        """后台嵌入作业配置：(cfg, batch)；AI 关闭时返回 None（外呼闸门）。"""
+        cfg = self.active_embedding_config()
+        if cfg is None:
+            return None
+        return cfg, max(1, int(self.embedding.batch))
 
     def rerank_config(self) -> ProviderConfig | None:
         if not self.rerank.enabled:
@@ -120,6 +150,12 @@ class AiSettings:
         if not p or not p.base_url or not self.rerank.model:
             return None
         return p.config(self.rerank.model)
+
+    def active_rerank_config(self) -> ProviderConfig | None:
+        """全局外呼闸门：AI 关闭时返回 None，Rerank 不得外呼。"""
+        if not self.enabled:
+            return None
+        return self.rerank_config()
 
     def agent_config(self) -> ProviderConfig | None:
         p = self.provider(self.agent.provider_id)
@@ -135,8 +171,9 @@ class AiSettings:
 
 
 class AiStore:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, secrets: SecretStore | None = None):
         self.path = path
+        self._secrets = secrets or SecretStore()
         self._lock = threading.RLock()
 
     # ---------- 读取 ----------
@@ -144,6 +181,7 @@ class AiStore:
     def load(self) -> AiSettings:
         with self._lock:
             raw = self._normalize(self._read_raw())
+            raw = self._migrate_plain_keys(raw)
             return self._to_settings(self._apply_env(raw))
 
     def _read_raw(self) -> dict:
@@ -158,11 +196,49 @@ class AiStore:
         with self._lock:
             base = self._normalize(self._read_raw())
             merged = self._merge_payload(base, payload)
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp.replace(self.path)
+            self._atomic_write(merged)
         return self.load()
+
+    def _atomic_write(self, merged: dict) -> None:
+        """原子写 JSON；写前统一剥离 api_key，确保 Key 永不落盘。"""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(_strip_keys(merged), ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(self.path)
+
+    def _set_secret(self, provider_id: str, key: str) -> None:
+        """写系统凭据库；任何失败统一包装为 SecretStoreError（fail closed）。"""
+        try:
+            self._secrets.set(provider_id, key)
+        except SecretStoreError:
+            raise
+        except Exception as exc:
+            raise SecretStoreError(f"保存密钥失败：{exc}") from exc
+
+    # ---------- 明文 Key 迁移 ----------
+
+    def _migrate_plain_keys(self, raw: dict) -> dict:
+        """旧版 JSON 中的明文 api_key → 系统凭据库。
+
+        先逐条成功写入 SecretStore，全部成功后再原子重写 JSON 删除 Key；
+        任一条失败则保持 JSON 原样（fail closed，不半迁移、不降级丢失）。
+        """
+        dirty = False
+        for p in raw.get("providers", []):
+            key = str(p.get("api_key") or "")
+            if not key:
+                continue
+            try:
+                self._secrets.set(str(p["id"]), key)
+            except Exception as exc:
+                logger = __import__("logging").getLogger(__name__)
+                logger.warning("明文 Key 迁移失败（保留 JSON 原样）：%s", exc)
+                return raw  # 不写 JSON，下次启动重试
+            p["api_key"] = ""
+            dirty = True
+        if dirty:
+            self._atomic_write(raw)
+        return raw
 
     # ---------- 归一化 / 迁移 / 合并 ----------
 
@@ -234,6 +310,7 @@ class AiStore:
         out["rerank"] = _section(out.get("rerank"), {
             "enabled": False, "provider_id": "", "model": "",
         })
+        out["vision"] = _section(out.get("vision"), {"provider_id": "", "model": ""})
         out["agent"] = _section(out.get("agent"), {
             "provider_id": "", "model": "", "max_iterations": 8,
             "system_prompt": "", "tools": dict(DEFAULT_TOOLS),
@@ -255,28 +332,38 @@ class AiStore:
                     continue
                 pid = str(p["id"])
                 prev = old.get(pid, {})
+                key = str(p.get("api_key") or "")
+                clear = bool(p.get("clear_api_key"))
+                if clear:
+                    # 显式清空：删除系统凭据；JSON 本就不含 Key
+                    self._secrets.delete(pid)
+                elif key:
+                    # 提交新 Key：写入系统凭据库；失败抛错 → save 中止，JSON 未动
+                    self._set_secret(pid, key)
                 providers.append({
                     "id": pid,
                     "name": str(p.get("name") or pid),
                     "base_url": str(p.get("base_url") or ""),
-                    # 不提交新的 api_key 时沿用旧值
-                    "api_key": str(p.get("api_key") or prev.get("api_key") or ""),
+                    # api_key 永不写入 JSON；不提交时沿用系统凭据库中的值
                     "models": [str(m) for m in (p.get("models") or []) if m],
                 })
+            # Provider 删除：同步清理系统凭据
+            for pid in set(old) - {p["id"] for p in providers}:
+                self._secrets.delete(pid)
             out["providers"] = providers
 
-        for section in ("chat", "embedding", "rerank", "agent"):
+        for section in ("chat", "embedding", "rerank", "vision", "agent"):
             if isinstance(payload.get(section), dict):
                 out[section] = _merge_section(base.get(section, {}), payload[section], section)
         # 兼容 v1 保存格式：chat/embedding 内联 base_url → 迁移为 provider
         if isinstance(payload.get("chat"), dict) and payload["chat"].get("base_url"):
-            _ensure_provider_in(out, "default", "默认", payload["chat"].get("base_url", ""), payload["chat"].get("api_key", ""))
+            _ensure_provider_in(out, "default", "默认", payload["chat"].get("base_url", ""), payload["chat"].get("api_key", ""), self._secrets)
             out["chat"] = _merge_section(base.get("chat", {}), {
                 **{k: v for k, v in payload["chat"].items() if k not in ("base_url", "api_key")},
                 "provider_id": "default",
             }, "chat")
         if isinstance(payload.get("embedding"), dict) and payload["embedding"].get("base_url"):
-            _ensure_provider_in(out, "embed", "嵌入", payload["embedding"].get("base_url", ""), payload["embedding"].get("api_key", ""))
+            _ensure_provider_in(out, "embed", "嵌入", payload["embedding"].get("base_url", ""), payload["embedding"].get("api_key", ""), self._secrets)
             out["embedding"] = _merge_section(base.get("embedding", {}), {
                 **{k: v for k, v in payload["embedding"].items() if k not in ("base_url", "api_key")},
                 "provider_id": "embed",
@@ -289,13 +376,15 @@ class AiStore:
         providers = [
             Provider(
                 id=p["id"], name=p["name"], base_url=p["base_url"],
-                api_key=p["api_key"], models=list(p["models"]),
+                # Key 从系统凭据库注入（内存态），JSON 永不保存
+                api_key=self._secrets.get(p["id"]), models=list(p["models"]),
             )
             for p in raw.get("providers", [])
         ]
         chat = raw["chat"]
         embedding = raw["embedding"]
         rerank = raw["rerank"]
+        vision = raw.get("vision") or {}
         agent = raw["agent"]
         return AiSettings(
             enabled=bool(raw.get("enabled", False)),
@@ -315,6 +404,10 @@ class AiStore:
                 provider_id=rerank.get("provider_id", ""),
                 model=rerank.get("model", ""),
             ),
+            vision=VisionCfg(
+                provider_id=vision.get("provider_id", ""),
+                model=vision.get("model", ""),
+            ),
             agent=AgentCfg(
                 provider_id=agent.get("provider_id", ""),
                 model=agent.get("model", ""),
@@ -322,7 +415,10 @@ class AiStore:
                 system_prompt=agent.get("system_prompt", ""),
                 tools=dict(DEFAULT_TOOLS, **{k: bool(v) for k, v in (agent.get("tools") or {}).items()}),
             ),
-            mcp_servers=[McpServer(name=s["name"], url=s["url"]) for s in raw.get("mcp", {}).get("servers", [])],
+            mcp_servers=[McpServer(
+                name=s["name"], url=s["url"],
+                transport=str(s.get("transport") or "sse_legacy"),
+            ) for s in raw.get("mcp", {}).get("servers", [])],
         )
 
     def _apply_env(self, raw: dict) -> dict:
@@ -375,14 +471,19 @@ def _section(raw, defaults: dict) -> dict:
     return out
 
 
-def _ensure_provider_in(out: dict, pid: str, name: str, base_url: str, api_key: str) -> None:
-    """按需补齐 provider（兼容 v1 保存格式）；同名不同 URL 时追加新条目。"""
+def _ensure_provider_in(out: dict, pid: str, name: str, base_url: str, api_key: str, secrets=None) -> None:
+    """按需补齐 provider（兼容 v1 保存格式）；同名不同 URL 时追加新条目。
+
+    api_key 写入系统凭据库（secrets 提供时），不写入 JSON。
+    """
     providers = out.get("providers", [])
     existing = next((p for p in providers if p["id"] == pid), None)
     if existing is None:
-        providers.append({"id": pid, "name": name, "base_url": base_url, "api_key": api_key, "models": []})
+        providers.append({"id": pid, "name": name, "base_url": base_url, "models": []})
     elif base_url and base_url != existing["base_url"]:
-        providers.append({"id": pid, "name": name, "base_url": base_url, "api_key": api_key, "models": []})
+        providers.append({"id": pid, "name": name, "base_url": base_url, "models": []})
+    if api_key and secrets is not None:
+        secrets.set(pid, api_key)
     out["providers"] = providers
 
 
@@ -408,8 +509,22 @@ def _mcp_section(raw) -> dict:
     servers = []
     for s in raw.get("servers") or []:
         if isinstance(s, dict) and s.get("name"):
-            servers.append({"name": str(s["name"]), "url": str(s.get("url") or "")})
+            servers.append({
+                "name": str(s["name"]),
+                "url": str(s.get("url") or ""),
+                # 旧配置无 transport → 迁移为 sse_legacy（保持兼容）
+                "transport": str(s.get("transport") or "sse_legacy"),
+            })
     return {"servers": servers}
+
+
+def _strip_keys(raw: dict) -> dict:
+    """写盘前剥离所有 api_key 字段（防御性：任何路径都不应落盘 Key）。"""
+    out = dict(raw)
+    for p in out.get("providers", []):
+        if isinstance(p, dict):
+            p.pop("api_key", None)
+    return out
 
 
 def new_provider_id() -> str:

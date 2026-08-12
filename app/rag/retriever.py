@@ -16,6 +16,7 @@ from ..services.indexer import Indexer
 from ..services.metadata import parse_frontmatter
 
 _EXCLUDE_PREFIXES = (".trash/",)
+_EMBED_SIG_KEY = "embedding_signature"
 
 
 def _pack(v: list[float]) -> bytes:
@@ -102,8 +103,50 @@ class RagIndexer:
         ).fetchall()
         return [(row[0], row[1]) for row in rows]
 
+    def ensure_embedding_signature(self, provider_id: str, base_url: str, model: str) -> bool:
+        """Embedding 模型签名（provider_id + base_url + model）变化时重置向量库。
+
+        - 变化：事务内删除 embeddings、全部 chunks ai_indexed=0（重新嵌入），写回新签名。
+        - 首次（无签名记录）：只写签名不重置（无历史向量可清）。
+        - Key 变化不参与签名（不重建）。
+        - 事务失败完整回滚。
+        返回是否发生了重置。
+        """
+        if not model:
+            return False
+        sig = f"{provider_id}|{base_url}|{model}"
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM schema_meta WHERE key=?", (_EMBED_SIG_KEY,)
+            ).fetchone()
+            if row is not None and row[0] == sig:
+                return False
+            if row is not None:
+                conn.execute("DELETE FROM embeddings")
+                conn.execute("UPDATE chunks SET ai_indexed=0")
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_meta(key,value) VALUES(?,?)",
+                (_EMBED_SIG_KEY, sig),
+            )
+        return row is not None
+
     def store_embeddings(self, chunk_ids: list[int], vectors: list[list[float]], model: str) -> None:
-        dims = len(vectors[0]) if vectors else 0
+        """严格校验后写入向量；只标记成功写入的 chunk 为 indexed。
+
+        - len(vectors) == len(chunk_ids) 才写入
+        - 每个向量非空、维度一致
+        - 校验失败抛 ValueError（worker 进入退避重试，绝不静默标完成）
+        """
+        if not chunk_ids or not vectors:
+            return
+        if len(vectors) != len(chunk_ids):
+            raise ValueError(f"向量数量 {len(vectors)} 与块数量 {len(chunk_ids)} 不一致")
+        dims = len(vectors[0])
+        if dims == 0:
+            raise ValueError("空向量")
+        for vec in vectors:
+            if len(vec) != dims:
+                raise ValueError("向量维度不一致")
         with self.db.connect() as conn:
             for cid, vec in zip(chunk_ids, vectors):
                 conn.execute(

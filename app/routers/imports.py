@@ -55,6 +55,9 @@ async def import_file(
     rel_dir = dir.strip("/")
     rel = f"{rel_dir}/{name}" if rel_dir else name
     node = vault.import_file(rel, data)
+    watcher = getattr(request.app.state, "watcher", None)
+    if watcher is not None:
+        watcher.mark_self_write(node.path)
 
     parsed_chars = 0
     try:
@@ -68,9 +71,9 @@ async def import_file(
             if text:
                 _rag(request).reindex_file(node.path, text)
                 parsed_chars = len(text)
-    except Exception:
-        # 索引失败不撤销已成功的导入
-        pass
+    except Exception as exc:
+        # 索引失败不撤销已成功的导入；记录到 index_failures 供诊断与重试
+        request.app.state.index_health.record(node.path, "index", str(exc))
 
     return ImportOut(
         path=node.path,

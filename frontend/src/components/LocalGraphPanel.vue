@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Network } from 'lucide-vue-next'
 import { api } from '../api'
 import { openTab } from '../store'
+import PanelHeader from './PanelHeader.vue'
+import EmptyState from './EmptyState.vue'
 
 const props = defineProps<{ tabPath: string }>()
 const emit = defineEmits<{ (e: 'notify', message: string, kind: 'info' | 'error'): void }>()
@@ -68,45 +70,45 @@ onBeforeUnmount(() => window.removeEventListener('tab-saved', onSaved))
 </script>
 
 <template>
-  <div class="dock-panel">
-    <div class="dock-title">
-      <span>局部图谱</span>
-      <span class="dock-count">{{ nodes.length }}</span>
-    </div>
-    <div class="dock-body">
-      <div v-if="loading" class="panel-empty">加载中…</div>
-      <div v-else-if="nodes.length === 0" class="panel-empty">
-        <Network :size="14" /> 暂无关联笔记
-      </div>
-      <svg v-else :viewBox="`0 0 ${SIZE.w} ${SIZE.h}`" class="graph-svg">
-        <line
-          v-for="(e, i) in edges"
-          :key="'e' + i"
-          :x1="layout.get(e.source)?.x"
-          :y1="layout.get(e.source)?.y"
-          :x2="layout.get(e.target)?.x"
-          :y2="layout.get(e.target)?.y"
-          class="graph-edge"
-        />
-        <g v-for="n in nodes" :key="n.id" class="graph-node" @click="openNode(n.id)">
-          <circle
-            :cx="layout.get(n.id)?.x"
-            :cy="layout.get(n.id)?.y"
-            r="22"
-            :class="{ center: n.id === tabPath }"
+  <div class="panel">
+    <PanelHeader title="局部图谱" :count="nodes.length" />
+    <div class="panel-body">
+      <div class="graph-wrap">
+        <EmptyState v-if="loading">加载中…</EmptyState>
+        <EmptyState v-else-if="nodes.length === 0">
+          <template #icon><Network :size="18" /></template>
+          暂无关联笔记
+        </EmptyState>
+        <svg v-else :viewBox="`0 0 ${SIZE.w} ${SIZE.h}`" class="graph-svg">
+          <line
+            v-for="(e, i) in edges"
+            :key="'e' + i"
+            :x1="layout.get(e.source)?.x"
+            :y1="layout.get(e.source)?.y"
+            :x2="layout.get(e.target)?.x"
+            :y2="layout.get(e.target)?.y"
+            class="graph-edge"
           />
-          <text
-            :x="layout.get(n.id)?.x"
-            :y="layout.get(n.id)?.y"
-            class="graph-label"
-            text-anchor="middle"
-            dominant-baseline="middle"
-          >
-            {{ n.label.length > 10 ? n.label.slice(0, 10) + '…' : n.label }}
-          </text>
-        </g>
-      </svg>
-      <div class="graph-hint">点击节点打开笔记；仅展示直接关联</div>
+          <g v-for="n in nodes" :key="n.id" class="graph-node" @click="openNode(n.id)">
+            <circle
+              :cx="layout.get(n.id)?.x"
+              :cy="layout.get(n.id)?.y"
+              r="22"
+              :class="{ center: n.id === tabPath }"
+            />
+            <text
+              :x="layout.get(n.id)?.x"
+              :y="layout.get(n.id)?.y"
+              class="graph-label"
+              text-anchor="middle"
+              dominant-baseline="middle"
+            >
+              {{ n.label.length > 10 ? n.label.slice(0, 10) + '…' : n.label }}
+            </text>
+          </g>
+        </svg>
+        <div class="graph-hint">点击节点打开笔记；仅展示直接关联</div>
+      </div>
     </div>
   </div>
 </template>

@@ -15,3 +15,9 @@ dist/
 # 开发工具
 .idea/
 .zcode/
+
+# macOS
+.DS_Store
+
+# 浏览器测试截图
+gui-test-screenshots/

@@ -85,6 +85,7 @@ class FileContent:
     size: int
     bom: bool
     newline: str
+    index_warning: str | None = None  # 保存成功但索引失败时的非阻塞警告
 
 
 @dataclass
@@ -181,6 +182,13 @@ class Vault:
                 )
 
             text, bom, newline = _decode(current)
+            # 内容未变：不写盘、不触发历史快照（幂等保存）
+            if text == content:
+                return FileContent(
+                    path=rel, content=content, etag=_etag_of(current),
+                    mtime_ns=path.stat().st_mtime_ns, size=path.stat().st_size,
+                    bom=bom, newline=newline,
+                )
             if on_before_write is not None:
                 on_before_write(rel, text, expected_etag)
 

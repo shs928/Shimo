@@ -26,5 +26,9 @@ def client(tmp_path):
     from fastapi.testclient import TestClient
 
     with TestClient(app) as tc:
+        # 测试环境注入内存凭据库，不触碰真实系统 keyring
+        from app.rag.secret_store import InMemorySecretStore
+
+        tc.app.state.ai_store._secrets = InMemorySecretStore()
         tc.post("/api/v1/auth/init", json={"password": "test-password"})
         yield tc

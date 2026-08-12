@@ -156,12 +156,16 @@ export async function renderAfter(root: HTMLElement): Promise<void> {
     }
   }
 
-  // Mermaid（strict 安全级别）
+  // Mermaid（strict 安全级别；主题跟随明暗偏好）
   const mermaidNodes = root.querySelectorAll<HTMLElement>('.mermaid')
   if (mermaidNodes.length > 0) {
     try {
       const mermaid = (await import('mermaid')).default
-      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'default' })
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: isDarkTheme() ? 'dark' : 'default',
+      })
       for (const el of mermaidNodes) {
         try {
           const { svg } = await mermaid.render(`mmd-${Math.random().toString(36).slice(2, 8)}`, el.textContent || '')
@@ -174,6 +178,11 @@ export async function renderAfter(root: HTMLElement): Promise<void> {
       mermaidNodes.forEach((el) => (el.textContent = '（Mermaid 渲染不可用）'))
     }
   }
+}
+
+/** 当前是否为深色主题（prefers-color-scheme） */
+export function isDarkTheme(): boolean {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
 /** 相对路径（assets/...、图片等）解析为可访问 URL */

@@ -6,13 +6,23 @@ import type { NodeInfo, SaveState } from './types'
 export interface Tab {
   path: string
   name: string
-  /** 当前工作内容（内存态，可能未保存） */
+  /** 判别联合：md → 在线编辑；doc → 只读文本预览 */
+  kind: 'md' | 'doc'
+  /** 当前工作内容（内存态，可能未保存）；doc 为预览文本（只读） */
   content: string
   /** 最后一次成功保存的内容，用于判定 dirty 状态 */
   savedContent: string
   etag: string | null
   saveState: SaveState
   error: string
+  /** 文档预览元信息（kind === 'doc' 时存在） */
+  docMeta?: { size: number; chars: number; truncated: boolean }
+}
+
+const DOC_EXT = /\.(pdf|docx|txt|csv)$/i
+
+export function isDocumentPath(path: string): boolean {
+  return DOC_EXT.test(path)
 }
 
 export const state = reactive({
@@ -52,16 +62,33 @@ export async function openTab(path: string): Promise<void> {
     state.activePath = path
     return
   }
-  const fc = await api.readFile(path)
-  state.tabs.push({
-    path,
-    name: basename(path),
-    content: fc.content,
-    savedContent: fc.content,
-    etag: fc.etag,
-    saveState: 'saved',
-    error: '',
-  })
+  if (isDocumentPath(path)) {
+    // 文档：只读预览（无 ETag、无编辑、无 dirty）
+    const pv = await api.documentPreview(path)
+    state.tabs.push({
+      path,
+      name: pv.name,
+      kind: 'doc',
+      content: pv.text,
+      savedContent: pv.text,
+      etag: null,
+      saveState: 'saved',
+      error: '',
+      docMeta: { size: pv.size, chars: pv.chars, truncated: pv.truncated },
+    })
+  } else {
+    const fc = await api.readFile(path)
+    state.tabs.push({
+      path,
+      name: basename(path),
+      kind: 'md',
+      content: fc.content,
+      savedContent: fc.content,
+      etag: fc.etag,
+      saveState: 'saved',
+      error: '',
+    })
+  }
   state.activePath = path
 }
 

@@ -25,9 +25,18 @@ if [ ! -d ".venv" ]; then
   "$PYTHON_BIN" -m venv .venv
 fi
 
-if ! ./.venv/bin/python -c "import fastapi, uvicorn, argon2" >/dev/null 2>&1; then
+# requirements 哈希检测：依赖清单变化时重新安装（防止旧 venv 漏装新依赖）
+REQ_HASH_FILE=".venv/.requirements-hash"
+CURRENT_HASH="$( (cat requirements.txt; echo) | shasum -a 256 | awk '{print $1}' )"
+INSTALLED_HASH="$(cat "$REQ_HASH_FILE" 2>/dev/null || echo '')"
+if [ "$CURRENT_HASH" != "$INSTALLED_HASH" ]; then
+  echo "[安装] 检测到依赖清单变化，正在安装后端依赖..."
+  ./.venv/bin/python -m pip install -r requirements.txt
+  echo "$CURRENT_HASH" > "$REQ_HASH_FILE"
+elif ! ./.venv/bin/python -c "import fastapi, uvicorn, argon2" >/dev/null 2>&1; then
   echo "[安装] 正在安装后端依赖..."
   ./.venv/bin/python -m pip install -r requirements.txt
+  echo "$CURRENT_HASH" > "$REQ_HASH_FILE"
 fi
 
 if [ ! -f "frontend/dist/index.html" ]; then

@@ -51,10 +51,13 @@ def _settings(request: Request) -> AiSettings:
     return _ai(request).load()
 
 
-def _sessions(request: Request) -> dict:
+def _sessions(request: Request):
+    """自由对话会话存储（持久化到 data/chat_sessions.json）。"""
     store = getattr(request.app.state, "chat_sessions", None)
     if store is None:
-        store = {}
+        from ..services.chat_sessions import ChatSessionStore
+
+        store = ChatSessionStore(Path(request.app.state.config.data_path) / "chat_sessions.json")
         request.app.state.chat_sessions = store
     return store
 
@@ -68,6 +71,7 @@ class AiConfigIn(BaseModel):
     chat: dict | None = None
     embedding: dict | None = None
     rerank: dict | None = None
+    vision: dict | None = None
     agent: dict | None = None
     mcp: dict | None = None
 
@@ -102,16 +106,18 @@ def status(request: Request) -> dict:
     job = getattr(request.app.state, "embedding_job", None)
     chat_cfg = s.chat_config()
     embed_cfg = s.embedding_config()
+    # 状态拆分：configured（已配置）/ active（启用且配置）/ worker_alive（调度器存活）
     return {
         "enabled": s.enabled,
         "chat_configured": chat_cfg is not None,
         "embed_configured": embed_cfg is not None,
+        "embedding_active": s.active_embedding_config() is not None,
         "agent_configured": s.agent_config() is not None,
         "providers": len(s.providers),
         "chunks": rag.count_chunks(),
         "embedded": rag.count_embedded(),
         "has_vectors": rag.has_vectors(),
-        "embedding_running": bool(job and job.running),
+        "worker_alive": bool(job and job.running),
         "mcp_servers": len(s.mcp_servers),
     }
 
@@ -134,23 +140,36 @@ def get_config(request: Request) -> dict:
         },
         "embedding": {"provider_id": s.embedding.provider_id, "model": s.embedding.model, "batch": s.embedding.batch},
         "rerank": {"enabled": s.rerank.enabled, "provider_id": s.rerank.provider_id, "model": s.rerank.model},
+        "vision": {"provider_id": s.vision.provider_id, "model": s.vision.model},
         "agent": {
             "provider_id": s.agent.provider_id, "model": s.agent.model,
             "max_iterations": s.agent.max_iterations, "system_prompt": s.agent.system_prompt,
             "tools": s.agent.tools,
         },
-        "mcp": {"servers": [{"name": m.name, "url": m.url} for m in s.mcp_servers]},
+        "mcp": {"servers": [{"name": m.name, "url": m.url, "transport": m.transport} for m in s.mcp_servers]},
     }
 
 
 @router.post("/config", dependencies=_write_deps)
 def save_config(payload: AiConfigIn, request: Request) -> dict:
-    s = _ai(request).save(payload.model_dump(exclude_none=True))
+    ai = _ai(request)
+    s = ai.save(payload.model_dump(exclude_none=True))
+    # 模型签名变化 → 立即重置向量库（事务内），前端提示"后台重新嵌入"
+    embedding_changed = False
+    embed = s.active_embedding_config()
+    if embed is not None:
+        try:
+            embedding_changed = _rag(request).ensure_embedding_signature(
+                embed.provider_id, embed.base_url, embed.model
+            )
+        except Exception:
+            embedding_changed = False
     return {
         "enabled": s.enabled,
         "chat_configured": s.chat_config() is not None,
         "embed_configured": s.embedding_config() is not None,
         "providers": len(s.providers),
+        "embedding_changed": embedding_changed,
     }
 
 
@@ -233,7 +252,8 @@ def embedding_stat(request: Request) -> dict:
     job = getattr(request.app.state, "embedding_job", None)
     if job is None:
         rag = _rag(request)
-        return {"running": False, "pending": 0, "embedded": rag.count_embedded(), "total": rag.count_chunks()}
+        return {"running": False, "pending": 0, "embedded": rag.count_embedded(), "total": rag.count_chunks(),
+                "last_error": None, "backoff_seconds": 0.0}
     return job.stats()
 
 
@@ -244,8 +264,9 @@ def embedding_stat(request: Request) -> dict:
 def semantic_search(payload: SemanticSearchIn, request: Request) -> dict:
     s = _settings(request)
     rag = _rag(request)
-    embed_cfg = s.embedding_config()
-    rerank_cfg = s.rerank_config()
+    # 外呼闸门：AI 关闭 → FTS-only，且 Rerank 不调用
+    embed_cfg = s.active_embedding_config()
+    rerank_cfg = s.active_rerank_config()
 
     k = payload.k
     if rerank_cfg is not None:
@@ -289,7 +310,8 @@ def chat(payload: ChatIn, request: Request) -> StreamingResponse:
 
 
 def _rag_chat(payload: ChatIn, cfg: ProviderConfig, s: AiSettings, rag) -> StreamingResponse:
-    embed_cfg = s.embedding_config()
+    # 外呼闸门：AI 关闭时 active_embedding_config() 返回 None → FTS-only
+    embed_cfg = s.active_embedding_config()
     sources = rag.search(payload.message, k=5, embedding_cfg=embed_cfg)
 
     context_parts = []
@@ -331,15 +353,16 @@ def _rag_chat(payload: ChatIn, cfg: ProviderConfig, s: AiSettings, rag) -> Strea
 
 def _free_chat(payload: ChatIn, cfg: ProviderConfig, s: AiSettings, request: Request) -> StreamingResponse:
     sessions = _sessions(request)
-    history = deque(
-        (sessions[payload.session_id]["messages"] if payload.session_id in sessions else []),
-        maxlen=2 * max(1, s.chat.max_history_messages) + 2,
-    )
+    # 首次发送自动建会话（后端兜底，不依赖前端先建）
+    sid = payload.session_id or sessions.create()["id"]
+    data = sessions.get(sid) or {"messages": []}
+    history = deque(data["messages"], maxlen=2 * max(1, s.chat.max_history_messages) + 2)
     messages = [{"role": "system", "content": _FREE_SYSTEM_PROMPT}, *list(history)]
     messages.append({"role": "user", "content": payload.message})
 
     def event_stream():
         assistant_text = []
+        yield _sse({"type": "session", "session_id": sid})
         try:
             for piece in stream_chat(cfg, messages, temperature=s.chat.temperature, max_tokens=s.chat.max_tokens):
                 assistant_text.append(piece)
@@ -347,31 +370,36 @@ def _free_chat(payload: ChatIn, cfg: ProviderConfig, s: AiSettings, request: Req
         except ProviderError as exc:
             yield _sse({"type": "error", "error": str(exc)})
             return
-        # 完成后写回会话（用户 + 助手各一条，保留上下文）
-        sid = payload.session_id
-        if sid is not None:
-            history.append({"role": "user", "content": payload.message})
-            history.append({"role": "assistant", "content": "".join(assistant_text)})
-            sessions[sid] = {"messages": list(history)}
-        yield _sse({"type": "done"})
+        # 完成后持久化（原子写入），标题默认取首条用户问题
+        sessions.append(sid, payload.message, "".join(assistant_text), s.chat.max_history_messages)
+        yield _sse({"type": "done", "session_id": sid})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@router.get("/chat/session")
+def ls_sessions(request: Request) -> dict:
+    return {"sessions": _sessions(request).ls()}
+
+
 @router.post("/chat/session", dependencies=_write_deps)
 def new_session(request: Request) -> dict:
     """新建自由对话会话，返回 session_id。"""
-    import uuid
+    return {"session_id": _sessions(request).create()["id"]}
 
-    sid = uuid.uuid4().hex
-    _sessions(request)[sid] = {"messages": []}
-    return {"session_id": sid}
+
+@router.get("/chat/session/{session_id}")
+def get_session(session_id: str, request: Request) -> dict:
+    data = _sessions(request).get(session_id)
+    if data is None:
+        return {"session": None}
+    return {"session": data}
 
 
 @router.delete("/chat/session/{session_id}")
 def clear_session(session_id: str, request: Request) -> dict:
-    _sessions(request).pop(session_id, None)
+    _sessions(request).remove(session_id)
     return {"ok": True}
 
 

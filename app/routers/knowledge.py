@@ -51,9 +51,25 @@ def graph(
 
 @router.get("/index/stats")
 def index_stats(request: Request, indexer: Indexer = Depends(get_indexer)) -> dict:
-    return indexer.stats()
+    health = request.app.state.index_health
+    return {
+        **indexer.stats(),
+        "failures": health.recent(limit=20),
+        "failure_count": len(health.recent(limit=1000)),
+    }
 
 
 @router.post("/index/rebuild", dependencies=_write_deps)
 def rebuild(request: Request, indexer: Indexer = Depends(get_indexer)) -> dict:
-    return indexer.rebuild()
+    result = indexer.rebuild()
+    # 重建成功后清除失败记录（重建本身会重新索引全部文件）
+    request.app.state.index_health.clear()
+    return result
+
+
+@router.post("/index/retry-failed", dependencies=_write_deps)
+def retry_failed(request: Request) -> dict:
+    """重试全部索引失败项；成功清除，仍失败的更新记录。"""
+    return request.app.state.index_health.retry_failed(
+        request.app.state.vault, request.app.state.indexer, request.app.state.rag
+    )

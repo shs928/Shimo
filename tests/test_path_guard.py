@@ -12,8 +12,14 @@ from app.services.path_guard import PathError, normalize_rel, resolve_in_root, v
 def test_normalize_rel_basics():
     assert normalize_rel("a/b.md") == "a/b.md"
     assert normalize_rel("a\\b.md") == "a/b.md"  # 反斜杠归一化
-    assert normalize_rel("/a/b") == "a/b"
     assert normalize_rel("./a//b/") == "a/b"
+
+
+def test_normalize_rel_rejects_absolute_paths():
+    """绝对路径（含盘符）一律拒绝，不做去前导斜杠处理。"""
+    for bad in ["/a/b", "/etc/passwd", "C:/x", "C:\\x", "c:/windows", "//server/share"]:
+        with pytest.raises(PathError):
+            normalize_rel(bad)
 
 
 def test_normalize_rel_rejects_traversal():

@@ -17,6 +17,8 @@ export interface FileContent {
   size: number
   bom: boolean
   newline: string
+  /** 保存成功但索引失败时的非阻塞警告 */
+  index_warning?: string | null
 }
 
 export interface MovePlan {

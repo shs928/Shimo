@@ -3,6 +3,8 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ExternalLink, FileQuestion } from 'lucide-vue-next'
 import { api } from '../api'
 import { openTab } from '../store'
+import PanelHeader from './PanelHeader.vue'
+import EmptyState from './EmptyState.vue'
 
 const props = defineProps<{ tabPath: string }>()
 const emit = defineEmits<{ (e: 'notify', message: string, kind: 'info' | 'error'): void }>()
@@ -58,27 +60,26 @@ onBeforeUnmount(() => window.removeEventListener('tab-saved', onSaved))
 </script>
 
 <template>
-  <div class="dock-panel">
-    <div class="dock-title">
-      <span>链接</span>
-      <span class="dock-count">{{ links.length }}</span>
-    </div>
-    <div class="dock-body">
-      <div v-if="loading" class="panel-empty">加载中…</div>
-      <div v-else-if="links.length === 0" class="panel-empty">当前笔记没有链接</div>
-      <div v-for="(l, i) in links" :key="i" class="backlink-item" @click="openTarget(l)">
-        <div class="backlink-title">
-          {{ l.alias || l.target_raw }}
-          <FileQuestion v-if="!l.resolved" :size="12" class="warn-icon" title="目标不存在或存在歧义" />
+  <div class="panel">
+    <PanelHeader title="链接" :count="links.length" />
+    <div class="panel-body">
+      <EmptyState v-if="loading" class="empty-state--fill">加载中…</EmptyState>
+      <EmptyState v-else-if="links.length === 0" class="empty-state--fill">当前笔记没有链接</EmptyState>
+      <template v-else>
+        <div v-for="(l, i) in links" :key="i" class="backlink-item" @click="openTarget(l)">
+          <div class="backlink-title">
+            {{ l.alias || l.target_raw }}
+            <FileQuestion v-if="!l.resolved" :size="12" class="warn-icon" title="目标不存在或存在歧义" />
+          </div>
+          <div class="backlink-path">
+            {{ l.link_type }}
+            <span v-if="l.target_path" class="outgoing-target">
+              <ExternalLink :size="11" /> {{ l.target_path }}
+            </span>
+            <span v-else class="outgoing-unresolved">未解析</span>
+          </div>
         </div>
-        <div class="backlink-path">
-          {{ l.link_type }}
-          <span v-if="l.target_path" class="outgoing-target">
-            <ExternalLink :size="11" /> {{ l.target_path }}
-          </span>
-          <span v-else class="outgoing-unresolved">未解析</span>
-        </div>
-      </div>
+      </template>
     </div>
   </div>
 </template>

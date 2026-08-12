@@ -1,0 +1,32 @@
+# 拾墨 Shimo — Docker Compose
+# 用法：docker compose up -d
+# 首次访问 http://localhost:8848 设置访问密码。
+# 注意：请设置 SHIMO_INITIAL_PASSWORD 后首次启动以完成初始化。
+
+services:
+  shimo:
+    build: .
+    image: shimo:latest
+    container_name: shimo
+    restart: unless-stopped
+    ports:
+      - "8848:8848"
+    environment:
+      - SHIMO_HOST=0.0.0.0
+      - SHIMO_PORT=8848
+      # 首次初始化密码（设置后删除此行，改从 Web 登录）
+      - SHIMO_INITIAL_PASSWORD=${SHIMO_INITIAL_PASSWORD:-}
+      # 可选：AI 凭据经环境变量注入（永不落盘）
+      # - AI_CHAT_BASE_URL=https://api.openai.com/v1
+      # - AI_CHAT_API_KEY=sk-...
+      # - AI_CHAT_MODEL=gpt-4o-mini
+      # - AI_EMBED_BASE_URL=https://api.openai.com/v1
+      # - AI_EMBED_API_KEY=sk-...
+      # - AI_EMBED_MODEL=text-embedding-3-small
+    volumes:
+      - shimo-data:/app/data
+      - shimo-vault:/app/vault
+
+volumes:
+  shimo-data:
+  shimo-vault:

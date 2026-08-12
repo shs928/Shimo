@@ -15,27 +15,52 @@ const emit = defineEmits<{ (e: 'notify', message: string, kind: 'info' | 'error'
 
 const host = ref<HTMLElement | null>(null)
 const previewEl = ref<HTMLElement | null>(null)
+const wrapEl = ref<HTMLElement | null>(null)
 const mode = ref<'edit' | 'preview' | 'split'>('edit')
 
 /** 右键 AI 操作菜单状态（选区 + 屏幕坐标） */
 const actionMenu = ref<{ x: number; y: number; from: number; to: number; text: string } | null>(null)
+
+/** 拖拽投放反馈 */
+const dragging = ref(false)
+const dragKind = ref<'image' | 'doc'>('doc')
 
 let view: EditorView | null = null
 let saveTimer: number | undefined
 let renderTimer: number | undefined
 let saveInFlight = false
 let savePending = false
+let resizeObserver: ResizeObserver | null = null
 
-const isMobile = ref(window.innerWidth < 768)
+/** 响应式 isMobile（matchMedia，非一次性取值） */
+const mobileMq = window.matchMedia('(max-width: 768px)')
+const isMobile = ref(mobileMq.matches)
+/** 中央区域过窄时禁用分屏 */
+const centerNarrow = ref(false)
+/** 减少动态偏好 */
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+/** 主题变化时重渲染预览（Mermaid 明暗适配） */
+const darkMq = window.matchMedia('(prefers-color-scheme: dark)')
+
 function pickMode(next: 'edit' | 'preview' | 'split'): void {
-  // 移动端不支持分屏（无足够宽度），回退为阅读模式
-  if (isMobile.value && next === 'split') next = 'preview'
+  // 移动端 / 中央过窄不支持分屏，回退为阅读模式
+  if ((isMobile.value || centerNarrow.value) && next === 'split') next = 'preview'
   mode.value = next
 }
 
 const editorTheme = EditorView.theme({
-  '&': { height: '100%', fontSize: '14px' },
-  '.cm-scroller': { fontFamily: "'Cascadia Code', Consolas, monospace" },
+  '&': { height: '100%', fontSize: '13.5px', backgroundColor: 'transparent', color: 'var(--color-text)' },
+  '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.7' },
+  '.cm-gutters': {
+    backgroundColor: 'var(--color-raised)',
+    color: 'var(--color-text-faint)',
+    borderRight: '1px solid var(--color-rule)',
+  },
+  '.cm-activeLine': { backgroundColor: 'var(--color-raised)' },
+  '.cm-activeLineGutter': { backgroundColor: 'var(--color-raised)', color: 'var(--color-accent)' },
+  '.cm-selectionBackground': { backgroundColor: 'var(--color-selection) !important' },
+  '.cm-cursor': { borderLeftColor: 'var(--color-accent)' },
+  '.cm-placeholder': { color: 'var(--color-text-faint)' },
   '&.cm-focused': { outline: 'none' },
 })
 
@@ -49,8 +74,22 @@ function pasteUpload(event: ClipboardEvent): boolean {
   return true
 }
 
-/** 拖拽：图片 → 插入编辑器；文档（PDF/Word/TXT/CSV/MD）→ 导入到当前笔记所在目录 */
+/** 拖拽：图片 → 插入编辑器；文档 → 导入到当前笔记所在目录 */
+function onEditorDragOver(event: DragEvent): boolean {
+  const files = Array.from(event.dataTransfer?.files ?? [])
+  if (!files.length || !view) return false
+  event.preventDefault()
+  dragging.value = true
+  dragKind.value = files.some((f) => f.type.startsWith('image/')) ? 'image' : 'doc'
+  return true
+}
+
+function onEditorDragLeave(): void {
+  dragging.value = false
+}
+
 function onEditorDrop(event: DragEvent): boolean {
+  dragging.value = false
   const files = Array.from(event.dataTransfer?.files ?? [])
   if (!files.length || !view) return false
   event.preventDefault()
@@ -132,6 +171,8 @@ function buildState(content: string): EditorState {
       EditorView.domEventHandlers({
         paste: pasteUpload,
         drop: onEditorDrop,
+        dragover: onEditorDragOver,
+        dragleave: onEditorDragLeave,
         contextmenu: onContextMenu,
       }),
       EditorView.updateListener.of((update) => {
@@ -212,6 +253,9 @@ async function doSave(): Promise<void> {
     tab.savedContent = saved.content
     tab.etag = saved.etag
     tab.saveState = 'saved'
+    if (saved.index_warning) {
+      emit('notify', `已保存，但${saved.index_warning}`, 'error')
+    }
     window.dispatchEvent(new CustomEvent('tab-saved', { detail: tab.path }))
   } catch (e) {
     const err = e as Error & { status?: number }
@@ -238,7 +282,9 @@ function onOutlineJump(e: Event): void {
   const slug = (e as CustomEvent<string>).detail
   if (mode.value === 'edit') mode.value = 'split'
   window.setTimeout(() => {
-    document.getElementById(slug)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    document
+      .getElementById(slug)
+      ?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
   }, 60)
 }
 
@@ -256,10 +302,28 @@ watch(mode, () => {
 
 watch(rendered, () => void updatePreview())
 
+function onMobileMqChange(e: MediaQueryListEvent): void {
+  isMobile.value = e.matches
+  if (e.matches && mode.value === 'split') mode.value = 'preview'
+}
+
+function onDarkMqChange(): void {
+  void updatePreview()
+}
+
 onMounted(() => {
   mountEditor()
   void updatePreview()
   window.addEventListener('outline-jump', onOutlineJump)
+  mobileMq.addEventListener('change', onMobileMqChange)
+  darkMq.addEventListener('change', onDarkMqChange)
+  // 中央宽度不足时禁用分屏
+  resizeObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      centerNarrow.value = entry.contentRect.width < 760
+    }
+  })
+  if (wrapEl.value) resizeObserver.observe(wrapEl.value)
 })
 
 onBeforeUnmount(() => {
@@ -270,25 +334,40 @@ onBeforeUnmount(() => {
     if (activeTab()?.saveState === 'dirty') void runSave()
   }
   window.removeEventListener('outline-jump', onOutlineJump)
+  mobileMq.removeEventListener('change', onMobileMqChange)
+  darkMq.removeEventListener('change', onDarkMqChange)
   window.clearTimeout(renderTimer)
+  resizeObserver?.disconnect()
   unmountEditor()
 })
 </script>
 
 <template>
-  <div class="editor-wrap">
+  <div ref="wrapEl" class="editor-wrap">
     <div class="editor-toolbar">
       <div class="seg">
         <button :class="{ on: mode === 'edit' }" @click="pickMode('edit')">编辑</button>
         <button :class="{ on: mode === 'preview' }" @click="pickMode('preview')">阅读</button>
-        <button v-if="!isMobile" :class="{ on: mode === 'split' }" @click="pickMode('split')">分屏</button>
+        <button
+          v-if="!isMobile && !centerNarrow"
+          :class="{ on: mode === 'split' }"
+          title="分屏（中央区域过窄时不可用）"
+          @click="pickMode('split')"
+        >
+          分屏
+        </button>
       </div>
       <span class="toolbar-hint">支持 [[WikiLink]]、$公式$、```mermaid 图表；粘贴图片自动上传</span>
-      <button class="save-btn" @click="runSave">保存</button>
+      <button class="btn save-btn" @click="runSave">保存</button>
     </div>
-    <div class="editor-body" :class="mode">
+    <div class="editor-body" :class="[mode, { dragover: dragging }]">
       <div v-show="mode === 'edit' || mode === 'split'" ref="host" class="cm-host" />
-      <div v-show="mode === 'preview' || mode === 'split'" ref="previewEl" class="preview" />
+      <div v-show="mode === 'preview' || mode === 'split'" class="preview">
+        <div ref="previewEl" class="preview-inner" />
+      </div>
+      <div v-if="dragging" class="drop-overlay">
+        {{ dragKind === 'image' ? '松开以上传图片' : '松开以导入文档到当前目录' }}
+      </div>
     </div>
     <AiActionMenu
       v-if="actionMenu"

@@ -1,0 +1,8 @@
+# 拾墨 Shimo — Caddy 反向代理示例
+# 用法：把 shimo.example.com 换成你的域名，然后 caddy run。
+# 注意：Caddy 会自动申请 HTTPS 证书；无法替你配置真实 DNS/证书，
+#       请先在你的 DNS 服务商把域名 A 记录指向本机。
+
+shimo.example.com {
+    reverse_proxy 127.0.0.1:8848
+}

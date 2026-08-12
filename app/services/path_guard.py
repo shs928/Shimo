@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path, PurePosixPath
 
 class PathError(ValueError):
@@ -28,9 +29,15 @@ def normalize_rel(rel: str) -> str:
     """校验并规范化一个 Vault 相对路径（POSIX 风格，正斜杠分隔）。
 
     返回规范化后的相对路径；非法时抛 PathError。
+    绝对路径（以 / 开头或 Windows 盘符）一律拒绝，不做去前导斜杠处理。
     """
     if not isinstance(rel, str) or not rel.strip() or rel.strip() == "/":
         raise PathError("路径不能为空")
+
+    if rel.startswith("/"):
+        raise PathError("不允许绝对路径")
+    if re.match(r"^[A-Za-z]:[\\/]", rel):
+        raise PathError("不允许绝对路径（盘符）")
 
     p = PurePosixPath(rel.replace("\\", "/"))
     parts = [part for part in p.parts if part not in ("", ".", "/")]

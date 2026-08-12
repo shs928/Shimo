@@ -3,6 +3,8 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Link2 } from 'lucide-vue-next'
 import { api } from '../api'
 import { openTab } from '../store'
+import PanelHeader from './PanelHeader.vue'
+import EmptyState from './EmptyState.vue'
 
 const props = defineProps<{ tabPath: string }>()
 const emit = defineEmits<{ (e: 'notify', message: string, kind: 'info' | 'error'): void }>()
@@ -56,21 +58,21 @@ onBeforeUnmount(() => window.removeEventListener('tab-saved', onSaved))
 </script>
 
 <template>
-  <div class="dock-panel">
-    <div class="dock-title">
-      <span>反向链接</span>
-      <span class="dock-count">{{ backlinks.length }}</span>
-    </div>
-    <div class="dock-body">
-      <div v-if="loading" class="panel-empty">加载中…</div>
-      <div v-else-if="backlinks.length === 0" class="panel-empty">
-        <Link2 :size="14" /> 暂无笔记链接到这里
-      </div>
-      <div v-for="(b, i) in backlinks" :key="i" class="backlink-item" @click="openSource(b.source_path, b.anchor)">
-        <div class="backlink-title">{{ b.title || b.source_path }}</div>
-        <div class="backlink-path">{{ b.source_path }}<span v-if="b.anchor"> → {{ b.anchor }}</span></div>
-        <div v-if="b.context" class="backlink-context">{{ b.context }}</div>
-      </div>
+  <div class="panel">
+    <PanelHeader title="反向链接" :count="backlinks.length" />
+    <div class="panel-body">
+      <EmptyState v-if="loading" class="empty-state--fill">加载中…</EmptyState>
+      <EmptyState v-else-if="backlinks.length === 0" class="empty-state--fill">
+        <template #icon><Link2 :size="18" /></template>
+        暂无笔记链接到这里
+      </EmptyState>
+      <template v-else>
+        <div v-for="(b, i) in backlinks" :key="i" class="backlink-item" @click="openSource(b.source_path, b.anchor)">
+          <div class="backlink-title">{{ b.title || b.source_path }}</div>
+          <div class="backlink-path">{{ b.source_path }}<span v-if="b.anchor"> → {{ b.anchor }}</span></div>
+          <div v-if="b.context" class="backlink-context">{{ b.context }}</div>
+        </div>
+      </template>
     </div>
   </div>
 </template>
