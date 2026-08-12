@@ -1,0 +1,414 @@
+"""AI 路由：RAG 问答、自由对话、选中文本操作、语义搜索、模型与索引管理。
+
+- /ai/chat：mode=rag（检索注入）| free（直接对话，带多轮会话）。
+- /ai/action：选中文本 AI 操作（续写/摘要/…），对齐 chatGPTWithAction。
+- /ai/semantic-search：向量 / FTS 检索独立端点（可选 Rerank 精排）。
+- /ai/embedding-stat、/ai/list-models、/ai/rebuild、/ai/config、/ai/status、/ai/test。
+
+固定约束：模型不可直接调用工具（那是 Agent 的能力）、不可修改文件；
+AI 未配置时全部接口给出明确状态，不发起外部请求。
+"""
+from __future__ import annotations
+
+import json
+import os
+from collections import deque
+from pathlib import Path
+from typing import Iterator
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+from ..deps import csrf_guard, get_indexer, get_vault, require_auth
+from ..rag.ai_store import AiSettings
+from ..rag.provider import ProviderConfig, ProviderError, chat_ping, list_models, rerank, stream_chat
+from ..services.doc_parser import is_document, parse_document
+from ..services.indexer import Indexer
+from ..services.vault import Vault
+
+router = APIRouter(prefix="/api/v1/ai", tags=["ai"], dependencies=[Depends(require_auth)])
+_write_deps = [Depends(csrf_guard)]
+
+_RAG_SYSTEM_PROMPT = """你是个人知识库的问答助手。请仅根据提供的笔记片段回答用户问题。
+规则：
+- 优先引用笔记内容，不要编造笔记中没有的信息；不知道就明确说明。
+- 回答使用 Markdown；每个关键结论可标注来源编号，如 [1]。
+- 片段中每行开头形如 [1] path → 标题 的，是来源编号。"""
+
+_FREE_SYSTEM_PROMPT = "你是通用 AI 助手。回答使用 Markdown 格式。"
+
+
+def _ai(request: Request):
+    return request.app.state.ai_store
+
+
+def _rag(request: Request):
+    return request.app.state.rag
+
+
+def _settings(request: Request) -> AiSettings:
+    return _ai(request).load()
+
+
+def _sessions(request: Request) -> dict:
+    store = getattr(request.app.state, "chat_sessions", None)
+    if store is None:
+        store = {}
+        request.app.state.chat_sessions = store
+    return store
+
+
+# ---------- 请求模型 ----------
+
+
+class AiConfigIn(BaseModel):
+    enabled: bool | None = None
+    providers: list | None = None
+    chat: dict | None = None
+    embedding: dict | None = None
+    rerank: dict | None = None
+    agent: dict | None = None
+    mcp: dict | None = None
+
+
+class ChatIn(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    mode: str = Field(default="rag", pattern="^(rag|free)$")
+    session_id: str | None = None
+
+
+class ActionIn(BaseModel):
+    text: str = Field(min_length=1, max_length=20000)
+    action: str = Field(min_length=1, max_length=2000)
+
+
+class SemanticSearchIn(BaseModel):
+    query: str = Field(min_length=1, max_length=1000)
+    k: int = Field(default=5, ge=1, le=50)
+
+
+class ListModelsIn(BaseModel):
+    provider_id: str = Field(min_length=1)
+
+
+# ---------- 状态 / 配置 ----------
+
+
+@router.get("/status")
+def status(request: Request) -> dict:
+    s = _settings(request)
+    rag = _rag(request)
+    job = getattr(request.app.state, "embedding_job", None)
+    chat_cfg = s.chat_config()
+    embed_cfg = s.embedding_config()
+    return {
+        "enabled": s.enabled,
+        "chat_configured": chat_cfg is not None,
+        "embed_configured": embed_cfg is not None,
+        "agent_configured": s.agent_config() is not None,
+        "providers": len(s.providers),
+        "chunks": rag.count_chunks(),
+        "embedded": rag.count_embedded(),
+        "has_vectors": rag.has_vectors(),
+        "embedding_running": bool(job and job.running),
+        "mcp_servers": len(s.mcp_servers),
+    }
+
+
+@router.get("/config")
+def get_config(request: Request) -> dict:
+    """返回当前配置（脱敏：不返回 api_key）。"""
+    s = _settings(request)
+    return {
+        "enabled": s.enabled,
+        "providers": [
+            {"id": p.id, "name": p.name, "base_url": p.base_url, "models": p.models,
+             "has_key": bool(p.api_key)}
+            for p in s.providers
+        ],
+        "chat": {
+            "provider_id": s.chat.provider_id, "model": s.chat.model,
+            "temperature": s.chat.temperature, "max_tokens": s.chat.max_tokens,
+            "max_history_messages": s.chat.max_history_messages,
+        },
+        "embedding": {"provider_id": s.embedding.provider_id, "model": s.embedding.model, "batch": s.embedding.batch},
+        "rerank": {"enabled": s.rerank.enabled, "provider_id": s.rerank.provider_id, "model": s.rerank.model},
+        "agent": {
+            "provider_id": s.agent.provider_id, "model": s.agent.model,
+            "max_iterations": s.agent.max_iterations, "system_prompt": s.agent.system_prompt,
+            "tools": s.agent.tools,
+        },
+        "mcp": {"servers": [{"name": m.name, "url": m.url} for m in s.mcp_servers]},
+    }
+
+
+@router.post("/config", dependencies=_write_deps)
+def save_config(payload: AiConfigIn, request: Request) -> dict:
+    s = _ai(request).save(payload.model_dump(exclude_none=True))
+    return {
+        "enabled": s.enabled,
+        "chat_configured": s.chat_config() is not None,
+        "embed_configured": s.embedding_config() is not None,
+        "providers": len(s.providers),
+    }
+
+
+@router.post("/test", dependencies=_write_deps)
+def test(request: Request) -> dict:
+    s = _settings(request)
+    cfg = s.chat_config()
+    if cfg is None:
+        return {"ok": False, "message": "未配置 Chat 模型"}
+    try:
+        chat_ping(cfg)
+        return {"ok": True, "message": "连接成功"}
+    except ProviderError as exc:
+        return {"ok": False, "message": str(exc)}
+
+
+@router.post("/list-models", dependencies=_write_deps)
+def list_models_endpoint(payload: ListModelsIn, request: Request) -> dict:
+    s = _settings(request)
+    prov = s.provider(payload.provider_id)
+    if prov is None:
+        return {"ok": False, "models": [], "message": "Provider 不存在"}
+    try:
+        models = list_models(ProviderConfig(prov.base_url, prov.api_key, ""))
+        return {"ok": True, "models": models, "message": ""}
+    except ProviderError as exc:
+        return {"ok": False, "models": [], "message": str(exc)}
+
+
+# ---------- 索引 ----------
+
+
+@router.post("/rebuild", dependencies=_write_deps)
+def rebuild_ai(request: Request) -> dict:
+    """全库重新分块（.md 原文 + 文档解析文本）；嵌入由后台任务异步消费。"""
+    rag = _rag(request)
+    vault: Vault = get_vault(request)
+    indexer: Indexer = get_indexer(request)
+
+    reindexed = 0
+    parsed_chars = 0
+    for rel in _iter_importable(vault.root):
+        try:
+            if rel.lower().endswith(".md"):
+                fc = vault.read_markdown(rel)
+                text = fc.content
+            elif is_document(rel):
+                path = vault.root / rel
+                text = parse_document(rel, path.read_bytes())
+            else:
+                continue
+            rag.reindex_file(rel, text)
+            reindexed += 1
+            parsed_chars += len(text)
+        except Exception:
+            continue
+    job = getattr(request.app.state, "embedding_job", None)
+    stat = job.stats() if job else {"pending": 0, "embedded": 0, "total": 0}
+    return {
+        "reindexed": reindexed,
+        "parsed_chars": parsed_chars,
+        "pending": stat["pending"],
+        "embedded": stat["embedded"],
+        "total": stat["total"],
+        "chunks": rag.count_chunks(),
+    }
+
+
+def _iter_importable(root: Path):
+    """遍历 vault 下可进 AI 索引的文件（.md + 文档），跳过隐藏目录与回收站。"""
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        for name in filenames:
+            if name.lower().endswith(".md") or is_document(name):
+                yield (Path(dirpath) / name).relative_to(root).as_posix()
+
+
+@router.get("/embedding-stat")
+def embedding_stat(request: Request) -> dict:
+    job = getattr(request.app.state, "embedding_job", None)
+    if job is None:
+        rag = _rag(request)
+        return {"running": False, "pending": 0, "embedded": rag.count_embedded(), "total": rag.count_chunks()}
+    return job.stats()
+
+
+# ---------- 语义搜索 ----------
+
+
+@router.post("/semantic-search")
+def semantic_search(payload: SemanticSearchIn, request: Request) -> dict:
+    s = _settings(request)
+    rag = _rag(request)
+    embed_cfg = s.embedding_config()
+    rerank_cfg = s.rerank_config()
+
+    k = payload.k
+    if rerank_cfg is not None:
+        k = max(20, k)  # 先召回更多候选再做精排
+    results = rag.search(payload.query, k=k, embedding_cfg=embed_cfg)
+
+    if rerank_cfg is not None and len(results) > 1:
+        try:
+            ordered = rerank(rerank_cfg, payload.query, [r["text"] for r in results], top_n=payload.k)
+            ranked = []
+            for idx, score in ordered:
+                if 0 <= idx < len(results):
+                    item = dict(results[idx])
+                    item["score"] = score
+                    ranked.append(item)
+            results = ranked[: payload.k]
+        except ProviderError:
+            results = results[: payload.k]
+    else:
+        results = results[: payload.k]
+
+    return {"query": payload.query, "results": results}
+
+
+# ---------- 对话 ----------
+
+
+@router.post("/chat")
+def chat(payload: ChatIn, request: Request) -> StreamingResponse:
+    s = _settings(request)
+    if not s.enabled:
+        return _sse_error("AI 未启用，请先配置并开启")
+    cfg = s.chat_config()
+    if cfg is None:
+        return _sse_error("未配置 Chat 模型")
+
+    rag = _rag(request)
+    if payload.mode == "free":
+        return _free_chat(payload, cfg, s, request)
+    return _rag_chat(payload, cfg, s, rag)
+
+
+def _rag_chat(payload: ChatIn, cfg: ProviderConfig, s: AiSettings, rag) -> StreamingResponse:
+    embed_cfg = s.embedding_config()
+    sources = rag.search(payload.message, k=5, embedding_cfg=embed_cfg)
+
+    context_parts = []
+    for i, src in enumerate(sources, start=1):
+        path = src["file_path"]
+        heading = src.get("heading") or ""
+        text = src["text"]
+        context_parts.append(f"[{i}] {path} → {heading}\n{text}")
+    context = "\n\n---\n\n".join(context_parts) if context_parts else "（知识库中未检索到相关内容）"
+
+    messages = [
+        {"role": "system", "content": _RAG_SYSTEM_PROMPT},
+        {"role": "user", "content": f"知识片段：\n{context}\n\n问题：{payload.message}"},
+    ]
+
+    refs = [
+        {
+            "index": i,
+            "path": src["file_path"],
+            "heading": src.get("heading") or "",
+            "line_start": src.get("line_start"),
+            "line_end": src.get("line_end"),
+        }
+        for i, src in enumerate(sources, start=1)
+    ]
+
+    def event_stream():
+        try:
+            for piece in stream_chat(cfg, messages, temperature=s.chat.temperature, max_tokens=s.chat.max_tokens):
+                yield _sse({"type": "delta", "content": piece})
+        except ProviderError as exc:
+            yield _sse({"type": "error", "error": str(exc)})
+            return
+        yield _sse({"type": "done", "sources": refs})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _free_chat(payload: ChatIn, cfg: ProviderConfig, s: AiSettings, request: Request) -> StreamingResponse:
+    sessions = _sessions(request)
+    history = deque(
+        (sessions[payload.session_id]["messages"] if payload.session_id in sessions else []),
+        maxlen=2 * max(1, s.chat.max_history_messages) + 2,
+    )
+    messages = [{"role": "system", "content": _FREE_SYSTEM_PROMPT}, *list(history)]
+    messages.append({"role": "user", "content": payload.message})
+
+    def event_stream():
+        assistant_text = []
+        try:
+            for piece in stream_chat(cfg, messages, temperature=s.chat.temperature, max_tokens=s.chat.max_tokens):
+                assistant_text.append(piece)
+                yield _sse({"type": "delta", "content": piece})
+        except ProviderError as exc:
+            yield _sse({"type": "error", "error": str(exc)})
+            return
+        # 完成后写回会话（用户 + 助手各一条，保留上下文）
+        sid = payload.session_id
+        if sid is not None:
+            history.append({"role": "user", "content": payload.message})
+            history.append({"role": "assistant", "content": "".join(assistant_text)})
+            sessions[sid] = {"messages": list(history)}
+        yield _sse({"type": "done"})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.post("/chat/session", dependencies=_write_deps)
+def new_session(request: Request) -> dict:
+    """新建自由对话会话，返回 session_id。"""
+    import uuid
+
+    sid = uuid.uuid4().hex
+    _sessions(request)[sid] = {"messages": []}
+    return {"session_id": sid}
+
+
+@router.delete("/chat/session/{session_id}")
+def clear_session(session_id: str, request: Request) -> dict:
+    _sessions(request).pop(session_id, None)
+    return {"ok": True}
+
+
+# ---------- 选中文本 AI 操作 ----------
+
+
+@router.post("/action")
+def action(payload: ActionIn, request: Request) -> StreamingResponse:
+    s = _settings(request)
+    if not s.enabled:
+        return _sse_error("AI 未启用，请先配置并开启")
+    cfg = s.chat_config()
+    if cfg is None:
+        return _sse_error("未配置 Chat 模型")
+
+    # 对齐 SiYuan chatGPTWithAction：action 直接拼接在正文前
+    messages = [{"role": "user", "content": f"{payload.action}:\n\n{payload.text}"}]
+
+    def event_stream():
+        try:
+            for piece in stream_chat(cfg, messages, temperature=s.chat.temperature, max_tokens=s.chat.max_tokens):
+                yield _sse({"type": "delta", "content": piece})
+        except ProviderError as exc:
+            yield _sse({"type": "error", "error": str(exc)})
+            return
+        yield _sse({"type": "done"})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------- 工具 ----------
+
+
+def _sse(payload: dict) -> str:
+    return "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
+
+
+def _sse_error(message: str) -> StreamingResponse:
+    return StreamingResponse(iter([_sse({"type": "error", "error": message})]), media_type="text/event-stream")

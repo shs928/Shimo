@@ -1,0 +1,17 @@
+# 运行时数据
+vault/
+data/
+frontend/node_modules/
+frontend/dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# 开发工具
+.idea/
+.zcode/
