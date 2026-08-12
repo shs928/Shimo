@@ -21,3 +21,9 @@ dist/
 
 # 浏览器测试截图
 gui-test-screenshots/
+
+# E2E / 前端测试产物
+.e2e-data/
+.e2e-vault/
+frontend/test-results/
+frontend/playwright-report/
