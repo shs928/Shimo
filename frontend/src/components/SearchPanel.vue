@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Loader2, Search } from 'lucide-vue-next'
 import { api } from '../api'
 import { openTab } from '../store'
+import { splitHighlight } from '../highlight'
 
 const emit = defineEmits<{ (e: 'notify', message: string, kind: 'info' | 'error'): void }>()
 
@@ -59,21 +60,6 @@ async function openResult(path: string): Promise<void> {
  * 安全高亮：把命中片段拆成文本分片（命中 / 未命中），由 Vue 插值渲染。
  * 不使用 v-html，查询词永不被当作 HTML。
  */
-function highlight(text: string): Array<{ seg: string; hit: boolean }> {
-  const q = query.value.trim()
-  if (!q) return [{ seg: text, hit: false }]
-  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  let re: RegExp
-  try {
-    re = new RegExp(`(${escaped})`, 'gi')
-  } catch {
-    return [{ seg: text, hit: false }]
-  }
-  const parts = text.split(re).filter(Boolean)
-  const lowerQ = q.toLowerCase()
-  return parts.map((seg) => ({ seg, hit: seg.toLowerCase() === lowerQ }))
-}
-
 function onKeydown(e: KeyboardEvent): void {
   if (e.key === 'ArrowDown') {
     e.preventDefault()
@@ -126,14 +112,14 @@ onBeforeUnmount(() => window.clearTimeout(timer))
         @mouseenter="activeIndex = i"
       >
         <div class="search-item-title">
-          <template v-for="(p, pi) in highlight(r.title || r.path)" :key="pi">
+          <template v-for="(p, pi) in splitHighlight(r.title || r.path, query.trim())" :key="pi">
             <mark v-if="p.hit">{{ p.seg }}</mark>
             <template v-else>{{ p.seg }}</template>
           </template>
         </div>
         <div class="search-item-path">{{ r.path }}</div>
         <div v-if="r.snippet" class="search-item-snippet">
-          <template v-for="(p, pi) in highlight(r.snippet)" :key="pi">
+          <template v-for="(p, pi) in splitHighlight(r.snippet, query.trim())" :key="pi">
             <mark v-if="p.hit">{{ p.seg }}</mark>
             <template v-else>{{ p.seg }}</template>
           </template>
