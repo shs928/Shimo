@@ -303,6 +303,61 @@ def test_move_document_reindexes(client: TestClient):
     assert any(h["file_path"] == "sub/移动.txt" for h in hits)
 
 
+def test_move_directory_preserves_rag(client: TestClient):
+    """回归：目录移动此前只重建单文件 RAG，子孙 chunks 被级联清空后永久丢失。"""
+    _create(client, "sub/a.md", "# A\n\n目录移动正文 movea999。\n")
+    _create(client, "sub/b.md", "# B\n\n目录移动正文 moveb999。\n")
+    client.post("/api/v1/ai/rebuild")
+
+    r = client.post("/api/v1/files/move", json={"src": "sub", "dst": "renamed"})
+    assert r.status_code == 200, r.text
+
+    from app.rag.retriever import RagIndexer
+
+    rag: RagIndexer = client.app.state.rag
+    hits = rag.search("movea999", k=5)
+    assert any(h["file_path"] == "renamed/a.md" for h in hits)
+    hits2 = rag.search("moveb999", k=5)
+    assert any(h["file_path"] == "renamed/b.md" for h in hits2)
+
+
+def test_restore_directory_preserves_rag(client: TestClient):
+    """回归：目录恢复后子文件的普通与 AI 索引应完整重建。"""
+    _create(client, "d1/x.md", "# X\n\n恢复目录正文 restore999。\n")
+    client.post("/api/v1/ai/rebuild")
+    client.delete("/api/v1/files", params={"path": "d1"})
+
+    r = client.post("/api/v1/trash/restore", json={"path": "d1", "target": None})
+    assert r.status_code == 200, r.text
+
+    from app.rag.retriever import RagIndexer
+
+    rag: RagIndexer = client.app.state.rag
+    hits = rag.search("restore999", k=5)
+    assert any(h["file_path"] == "d1/x.md" for h in hits)
+
+
+def test_normal_rebuild_preserves_rag_on_parse_failure(client: TestClient):
+    """回归：解析失败的文件此前被 stale 清理误判为已删除，级联清空其 RAG。"""
+    _create(client, "bad.md", "# 内容\n\n正文内容 parsefail999。\n")
+    client.post("/api/v1/ai/rebuild")
+    before = client.get("/api/v1/ai/status").json()["chunks"]
+    assert before >= 1
+
+    # 直接写坏磁盘文件（非法 UTF-8）：普通索引重建时解析失败
+    (client.app.state.vault.root / "bad.md").write_bytes(b"\xff\xfe\x00\x01")
+
+    r = client.post("/api/v1/index/rebuild")
+    assert r.status_code == 200
+    assert any(f["path"] == "bad.md" for f in r.json()["failed"])
+
+    conn = client.app.state.db.connect()
+    assert conn.execute("SELECT 1 FROM files_meta WHERE path='bad.md'").fetchone() is not None
+    assert conn.execute("SELECT count(*) FROM chunks WHERE file_path='bad.md'").fetchone()[0] >= 1
+    after = client.get("/api/v1/ai/status").json()["chunks"]
+    assert after >= before
+
+
 def _create(client: TestClient, path: str, content: str) -> None:
     r = client.post("/api/v1/files", json={"path": path, "type": "file", "initial_content": content})
     assert r.status_code == 200, r.text

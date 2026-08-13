@@ -1,5 +1,12 @@
 /** 后端 API 客户端：认证、文件树、读写、移动、回收站、附件、元信息、WikiLink 解析。 */
-import type { NodeInfo, FileContent, MovePlan } from './types'
+import type {
+  FileContent,
+  MovePlan,
+  NodeInfo,
+  TemplateCatalog,
+  TemplateDetail,
+  TemplateDraft,
+} from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const isForm = init?.body instanceof FormData
@@ -28,6 +35,26 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     throw err
   }
   return res.json() as Promise<T>
+}
+
+async function requestBlob(url: string): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(url, { credentials: 'same-origin' })
+  if (res.status === 401) window.dispatchEvent(new CustomEvent('auth-expired'))
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = await res.json()
+      detail = body.detail ?? detail
+    } catch {
+      /* keep statusText */
+    }
+    throw new Error(detail)
+  }
+  const disposition = res.headers.get('Content-Disposition') ?? ''
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+  const filename = encoded ? decodeURIComponent(encoded) : plain || 'template.md'
+  return { blob: await res.blob(), filename }
 }
 
 export const api = {
@@ -146,11 +173,28 @@ export const api = {
       { method: 'POST' },
     ),
 
-  /** 文档只读预览（PDF/Word/TXT/CSV 纯文本提取） */
+  /** 文档只读预览（PDF/Word/TXT/CSV 纯文本提取；扫描件 has_text=false + ocr_status） */
   documentPreview: (path: string) =>
-    request<{ path: string; name: string; size: number; chars: number; truncated: boolean; text: string }>(
-      `/api/v1/documents/preview?path=${encodeURIComponent(path)}`,
-    ),
+    request<{
+      path: string
+      name: string
+      size: number
+      chars: number
+      truncated: boolean
+      has_text: boolean
+      ocr: boolean
+      ocr_status: string | null
+      ocr_progress: number
+      ocr_error: string
+      raw_url: string
+      text: string
+    }>(`/api/v1/documents/preview?path=${encodeURIComponent(path)}`),
+
+  /** OCR 识别失败后重新入队（failed → pending） */
+  ocrRetry: (path: string) =>
+    request<{ status: string }>(`/api/v1/documents/ocr-retry?path=${encodeURIComponent(path)}`, {
+      method: 'POST',
+    }),
 
   /** WikiLink 目标解析：当前目录优先，其次根目录，最后唯一文件名；歧义返回 null */
   resolveWiki: (link: string, dir: string) =>
@@ -217,6 +261,76 @@ export const api = {
       { method: 'POST' },
     ),
 
+  /** 模板中心：内置模板与 vault/templates 自定义模板统一目录。 */
+  templates: () => request<TemplateCatalog>('/api/v1/templates'),
+
+  templateDetail: (id: string) =>
+    request<TemplateDetail>(`/api/v1/templates/detail?id=${encodeURIComponent(id)}`),
+
+  templateApply: (id: string, path: string, title?: string) =>
+    request<{ path: string }>('/api/v1/templates/apply', {
+      method: 'POST',
+      body: JSON.stringify({ id, path, title: title ?? '' }),
+    }),
+
+  templateCreate: (draft: TemplateDraft) =>
+    request<TemplateDetail>('/api/v1/templates/custom', {
+      method: 'POST',
+      body: JSON.stringify(draft),
+    }),
+
+  templateUpdate: (id: string, patch: Partial<Omit<TemplateDraft, 'name'>>) =>
+    request<TemplateDetail>('/api/v1/templates/custom', {
+      method: 'PUT',
+      body: JSON.stringify({ id, ...patch }),
+    }),
+
+  templateMove: (id: string, name?: string, category?: string) =>
+    request<TemplateDetail>('/api/v1/templates/move', {
+      method: 'POST',
+      body: JSON.stringify({ id, name: name ?? null, category: category ?? null }),
+    }),
+
+  templateCopy: (id: string, name?: string, category?: string) =>
+    request<TemplateDetail>('/api/v1/templates/copy', {
+      method: 'POST',
+      body: JSON.stringify({ id, name: name ?? null, category: category ?? null }),
+    }),
+
+  templateDelete: (id: string) =>
+    request<{ ok: boolean }>(`/api/v1/templates/custom?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  templateCategoryCreate: (name: string) =>
+    request<{ categories: string[]; custom_categories?: string[] }>('/api/v1/templates/categories', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
+  templateCategoryMove: (name: string, newName: string) =>
+    request<{ categories: string[]; custom_categories?: string[] }>('/api/v1/templates/categories/move', {
+      method: 'POST',
+      body: JSON.stringify({ name, new_name: newName }),
+    }),
+
+  templateCategoryDelete: (name: string, force = false) =>
+    request<{ categories: string[]; custom_categories?: string[] }>(
+      `/api/v1/templates/categories?name=${encodeURIComponent(name)}&force=${force ? 'true' : 'false'}`,
+      { method: 'DELETE' },
+    ),
+
+  templateImport: (files: File[], category: string, strategy: 'skip' | 'rename' | 'overwrite') => {
+    const form = new FormData()
+    files.forEach((file) => form.append('files', file))
+    return request<{ imported: number; skipped: number; templates: TemplateDetail[] }>(
+      `/api/v1/templates/import?category=${encodeURIComponent(category)}&strategy=${strategy}`,
+      { method: 'POST', body: form },
+    )
+  },
+
+  templateExport: (id: string) => requestBlob(`/api/v1/templates/export?id=${encodeURIComponent(id)}`),
+
+  templateExportAll: () => requestBlob('/api/v1/templates/export-all'),
+
   aiStatus: () =>
     request<{
       enabled: boolean
@@ -240,6 +354,7 @@ export const api = {
       embedding: { provider_id: string; model: string; batch: number }
       rerank: { enabled: boolean; provider_id: string; model: string }
       vision: { provider_id: string; model: string }
+      ocr: { enabled: boolean }
       agent: { provider_id: string; model: string; max_iterations: number; system_prompt: string; tools: Record<string, boolean> }
       mcp: { servers: Array<{ name: string; url: string }> }
     }>('/api/v1/ai/config'),

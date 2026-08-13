@@ -1,19 +1,4 @@
-/* 响应式：1024 / 768 断点、100dvh、安全区、移动端 sheet */
-
-/* —— 桌面窄幅 1024 —— */
-@media (max-width: 1024px) {
-  .sidebar {
-    width: 248px;
-    min-width: 220px;
-  }
-  .right-panel {
-    width: 288px;
-    min-width: 264px;
-  }
-  .toolbar-hint {
-    display: none;
-  }
-}
+/* 响应式：紧凑桌面 / 移动端、100dvh、安全区与覆盖式面板 */
 
 /* —— 桌面默认隐藏移动端元素 —— */
 @media (min-width: 769px) {
@@ -25,11 +10,79 @@
   }
 }
 
-/* —— 移动端 768 —— */
+/* —— 紧凑桌面 769–1179：右侧面板覆盖，不挤压正文 —— */
+@media (min-width: 769px) and (max-width: 1179px) {
+  .main--compact > .sidebar,
+  .main--compact .sidebar.compact {
+    width: 248px;
+    min-width: 220px;
+  }
+
+  .main--compact > .right-panel,
+  .right-panel.compact,
+  .right-panel--compact {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(360px, calc(100vw - var(--width-spine) - 24px));
+    min-width: 300px;
+    z-index: var(--z-sheet);
+    border-left: 1px solid var(--color-rule);
+    box-shadow: var(--shadow-overlay);
+    transform: translateX(100%);
+    visibility: hidden;
+    transition: transform var(--motion-base) var(--ease),
+      visibility 0s linear var(--motion-base);
+  }
+  .main--compact > .right-panel.open,
+  .right-panel.compact.open,
+  .right-panel--compact.open {
+    transform: translateX(0);
+    visibility: visible;
+    transition-delay: 0s;
+  }
+  .main--compact .right-close,
+  .right-panel.compact .right-close,
+  .right-panel--compact .right-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 1;
+    display: inline-flex;
+  }
+  .main--compact .domain-tabs,
+  .right-panel.compact .domain-tabs,
+  .right-panel--compact .domain-tabs {
+    margin-right: 36px;
+  }
+  .scrim--compact,
+  .main--compact > .scrim {
+    display: block;
+  }
+  .main--compact .toolbar-hint {
+    display: none;
+  }
+}
+
+/* —— 移动端 ≤768 —— */
 @media (max-width: 768px) {
   /* 墨脊收进移动工作台，不再占用横向空间 */
   .spine {
     display: none;
+  }
+
+  /* 富文本工具栏：横向滚动而非挤压/换行 */
+  .editor-toolbar {
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 4px var(--space-2);
+  }
+  .editor-toolbar::-webkit-scrollbar {
+    display: none;
+  }
+  .editor-format {
+    flex-shrink: 0;
   }
 
   /* 左侧：目录索引 sheet */
@@ -38,33 +91,49 @@
     top: 0;
     bottom: 0;
     left: 0;
-    width: min(84vw, 340px);
+    width: min(86vw, 340px);
+    min-width: 0;
     z-index: var(--z-sheet);
     transform: translateX(-100%);
-    transition: transform var(--motion-base) var(--ease);
+    visibility: hidden;
+    transition: transform var(--motion-base) var(--ease),
+      visibility 0s linear var(--motion-base);
     border-right: 1px solid var(--color-rule);
+    box-shadow: var(--shadow-overlay);
   }
   .sidebar.open {
     transform: translateX(0);
+    visibility: visible;
+    transition-delay: 0s;
   }
   .sidebar-close {
     display: inline-flex;
   }
 
   /* 右侧：边注 / 助手 sheet */
-  .right-panel {
+  .right-panel,
+  .right-panel.compact,
+  .right-panel--compact {
     position: absolute;
     top: 0;
     bottom: 0;
     right: 0;
-    width: min(84vw, 360px);
+    width: min(86vw, 360px);
+    min-width: 0;
     z-index: var(--z-sheet);
     transform: translateX(100%);
-    transition: transform var(--motion-base) var(--ease);
+    visibility: hidden;
+    transition: transform var(--motion-base) var(--ease),
+      visibility 0s linear var(--motion-base);
     border-left: 1px solid var(--color-rule);
+    box-shadow: var(--shadow-overlay);
   }
-  .right-panel.open {
+  .right-panel.open,
+  .right-panel.compact.open,
+  .right-panel--compact.open {
     transform: translateX(0);
+    visibility: visible;
+    transition-delay: 0s;
   }
   /* 图谱移动端全屏 */
   .right-panel.right-panel--full {
@@ -72,10 +141,18 @@
     height: 100%;
   }
   .right-close {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 1;
     display: inline-flex;
   }
+  .right-head .domain-tabs {
+    margin-right: calc(var(--touch-min) + 4px);
+  }
 
-  .scrim {
+  .scrim,
+  .scrim--compact {
     display: block;
   }
 
@@ -94,15 +171,44 @@
   .outline-item,
   .backlink-item,
   .index-tab,
-  .page-tab {
+  .page-tab,
+  .domain-tab,
+  .tablist-item,
+  .mobile-doc-title,
+  .icon-btn,
+  .fmt-btn,
+  .tree-caret,
+  .sidebar-close,
+  .right-close,
+  .doc-template-back {
+    min-width: var(--touch-min);
     min-height: var(--touch-min);
   }
-  .icon-btn {
-    min-width: 40px;
-    min-height: 40px;
+  .fmt-btn {
+    width: var(--touch-min);
+    height: var(--touch-min);
+  }
+  .tree-row,
+  .trash-row,
+  .search-item,
+  .outline-item,
+  .backlink-item,
+  .index-tab,
+  .page-tab,
+  .domain-tab,
+  .tablist-item,
+  .mobile-doc-title {
+    min-width: 0;
   }
   .doc-path {
     max-width: 18ch;
+  }
+  .doc-header {
+    gap: var(--space-2);
+    padding-inline: var(--space-3);
+  }
+  .doc-title {
+    max-width: min(48vw, 24ch);
   }
   .editor-body.split > * {
     width: 100%;
@@ -114,7 +220,7 @@
     margin-left: 0;
   }
 
-  /* 底部移动工作台 */
+  /* 底部移动工作台：safe-area 只在此处计算一次 */
   .mobile-workbench {
     display: flex;
     align-items: stretch;
@@ -146,6 +252,6 @@
 
   .app {
     height: 100dvh;
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: 0;
   }
 }

@@ -1,4 +1,4 @@
-/** Vitest 测试环境准备：jsdom 缺失的浏览器 API mock。 */
+/** Vitest 测试环境准备：仅补齐 jsdom 缺失的轻量浏览器 API。 */
 import { vi } from 'vitest'
 
 Object.defineProperty(window, 'matchMedia', {
@@ -13,4 +13,16 @@ Object.defineProperty(window, 'matchMedia', {
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(),
   })),
+})
+
+class ResizeObserverMock implements ResizeObserver {
+  observe = vi.fn()
+  unobserve = vi.fn()
+  disconnect = vi.fn()
+}
+
+vi.stubGlobal('ResizeObserver', ResizeObserverMock)
+Object.defineProperty(Element.prototype, 'scrollIntoView', {
+  configurable: true,
+  value: vi.fn(),
 })

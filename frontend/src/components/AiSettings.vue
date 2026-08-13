@@ -37,6 +37,7 @@ interface AiConfig {
   rerank: { enabled: boolean; provider_id: string; model: string }
   vision: { provider_id: string; model: string }
   agent: { provider_id: string; model: string; max_iterations: number; system_prompt: string; tools: Record<string, boolean> }
+  ocr: { enabled: boolean }
   mcp: { servers: Array<{ name: string; url: string }> }
 }
 
@@ -136,6 +137,7 @@ function buildPayload(): Record<string, unknown> {
     embedding: { ...cfg.value.embedding },
     rerank: { ...cfg.value.rerank },
     vision: { ...cfg.value.vision },
+    ocr: { ...cfg.value.ocr },
     agent: { ...cfg.value.agent },
     mcp: cfg.value.mcp,
   }
@@ -283,6 +285,12 @@ onMounted(() => {
       </div>
       <div class="ai-field"><label>模型</label><input v-model="cfg.vision.model" placeholder="gpt-4o / gemini-1.5-pro" /></div>
       <p class="ai-note">独立于 Chat 模型；未配置时图片理解/生成回退使用 Agent 模型。</p>
+    </div>
+
+    <div v-if="cfg" class="ai-section">
+      <div class="ai-section-title">本地 OCR（扫描件识别）</div>
+      <label class="ai-toggle"><input v-model="cfg.ocr.enabled" type="checkbox" /> 启用 OCR 识别</label>
+      <p class="ai-note">扫描版 PDF（无文字层）导入后由后台任务本地识别文字，进入知识库索引与预览；不调用外部服务。</p>
     </div>
 
     <div v-if="cfg" class="ai-section">

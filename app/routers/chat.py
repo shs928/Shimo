@@ -23,17 +23,25 @@ from pydantic import BaseModel, Field
 from ..deps import csrf_guard, get_indexer, get_vault, require_auth
 from ..rag.ai_store import AiSettings
 from ..rag.provider import ProviderConfig, ProviderError, chat_ping, list_models, rerank, stream_chat
-from ..services.doc_parser import is_document, parse_document
+from ..services.doc_parser import is_document
 from ..services.indexer import Indexer
 from ..services.vault import Vault
 
 router = APIRouter(prefix="/api/v1/ai", tags=["ai"], dependencies=[Depends(require_auth)])
 _write_deps = [Depends(csrf_guard)]
 
-_RAG_SYSTEM_PROMPT = """你是个人知识库的问答助手。请仅根据提供的笔记片段回答用户问题。
-规则：
-- 优先引用笔记内容，不要编造笔记中没有的信息；不知道就明确说明。
-- 回答使用 Markdown；每个关键结论可标注来源编号，如 [1]。
+_RAG_SYSTEM_PROMPT = """你是个人知识库的 AI 助手，结合「知识库笔记」与「你自身的知识能力」给出高质量回答。
+
+回答原则：
+1. 提供的知识片段是重要参考：与问题相关的片段内容作为回答的主干，并给相关结论标注来源编号（如 [1]）。
+2. 发挥你自身的能力：当片段不足以完整回答时，用你自己的知识解释、补充、延伸，让答案完整实用；
+   不要因为"笔记里没有"就拒绝回答或只说不知道。
+3. 清晰区分来源：来自笔记的结论标注 [n]；来自你自身知识的内容用"据我所知""一般来说"等措辞区分，
+   绝不要把自身知识伪装成笔记内容，也绝不要给笔记里没有的信息标注来源编号。
+4. 知识库没有相关内容时（片段显示"未检索到"），直接用自己的知识正常回答，
+   开头用一句话说明"知识库中没有检索到相关笔记"即可，不要反复强调。
+5. 笔记内容可能过时、片面或相互矛盾：如有疑问可以指出，并给出你的判断。
+6. 回答使用 Markdown；来源编号放在对应结论之后。
 - 片段中每行开头形如 [1] path → 标题 的，是来源编号。"""
 
 _FREE_SYSTEM_PROMPT = "你是通用 AI 助手。回答使用 Markdown 格式。"
@@ -73,6 +81,7 @@ class AiConfigIn(BaseModel):
     rerank: dict | None = None
     vision: dict | None = None
     agent: dict | None = None
+    ocr: dict | None = None
     mcp: dict | None = None
 
 
@@ -141,6 +150,7 @@ def get_config(request: Request) -> dict:
         "embedding": {"provider_id": s.embedding.provider_id, "model": s.embedding.model, "batch": s.embedding.batch},
         "rerank": {"enabled": s.rerank.enabled, "provider_id": s.rerank.provider_id, "model": s.rerank.model},
         "vision": {"provider_id": s.vision.provider_id, "model": s.vision.model},
+        "ocr": {"enabled": s.ocr.enabled},
         "agent": {
             "provider_id": s.agent.provider_id, "model": s.agent.model,
             "max_iterations": s.agent.max_iterations, "system_prompt": s.agent.system_prompt,
@@ -211,14 +221,20 @@ def rebuild_ai(request: Request) -> dict:
 
     reindexed = 0
     parsed_chars = 0
+    ocr_queued = 0
+    ocr_service = request.app.state.ocr_service
+    rag.delete_path("templates")
     for rel in _iter_importable(vault.root):
         try:
             if rel.lower().endswith(".md"):
                 fc = vault.read_markdown(rel)
                 text = fc.content
             elif is_document(rel):
-                path = vault.root / rel
-                text = parse_document(rel, path.read_bytes())
+                # 解析文本优先；扫描件 PDF 用 OCR 结果并确保任务入队
+                text = ocr_service.text_for_index(vault, rel)
+                if text is None:
+                    ocr_queued += 1
+                    continue
             else:
                 continue
             rag.reindex_file(rel, text)
@@ -231,6 +247,7 @@ def rebuild_ai(request: Request) -> dict:
     return {
         "reindexed": reindexed,
         "parsed_chars": parsed_chars,
+        "ocr_queued": ocr_queued,
         "pending": stat["pending"],
         "embedded": stat["embedded"],
         "total": stat["total"],
@@ -241,7 +258,12 @@ def rebuild_ai(request: Request) -> dict:
 def _iter_importable(root: Path):
     """遍历 vault 下可进 AI 索引的文件（.md + 文档），跳过隐藏目录与回收站。"""
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        dirnames[:] = [
+            d for d in dirnames
+            if not d.startswith(".") and not (
+                Path(dirpath) == root and d.casefold() == "templates"
+            )
+        ]
         for name in filenames:
             if name.lower().endswith(".md") or is_document(name):
                 yield (Path(dirpath) / name).relative_to(root).as_posix()

@@ -36,3 +36,37 @@ export interface AuthStatus {
 }
 
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict'
+
+export type TemplateSource = 'builtin' | 'custom'
+
+export interface TemplateSummary {
+  id: string
+  source: TemplateSource
+  title: string
+  description: string
+  category: string
+  tags: string[]
+  icon: string
+  path?: string | null
+  updated_at: string
+}
+
+export interface TemplateDetail extends TemplateSummary {
+  content: string
+}
+
+export interface TemplateCatalog {
+  templates: TemplateSummary[]
+  categories: string[]
+  custom_categories?: string[]
+}
+
+export interface TemplateDraft {
+  name: string
+  title: string
+  description: string
+  category: string
+  tags: string[]
+  icon: string
+  content: string
+}

@@ -46,15 +46,20 @@ async function submit(): Promise<void> {
       <p class="login-hint">
         {{ initialized ? '输入访问密码继续' : '首次使用，请设置访问密码' }}
       </p>
-      <input v-model="password" type="password" placeholder="访问密码" autocomplete="current-password" autofocus />
-      <input
-        v-if="!initialized"
-        v-model="confirm"
-        type="password"
-        placeholder="确认密码"
-        autocomplete="new-password"
-      />
-      <p v-if="error" class="login-error">{{ error }}</p>
+      <label class="login-field">
+        <span>访问密码</span>
+        <input v-model="password" type="password" placeholder="请输入访问密码" autocomplete="current-password" autofocus />
+      </label>
+      <label v-if="!initialized" class="login-field">
+        <span>确认密码</span>
+        <input
+          v-model="confirm"
+          type="password"
+          placeholder="请再次输入密码"
+          autocomplete="new-password"
+        />
+      </label>
+      <p v-if="error" class="login-error" role="alert">{{ error }}</p>
       <button class="btn btn--primary" type="submit" :disabled="busy">{{ busy ? '请稍候…' : initialized ? '登录' : '初始化并进入' }}</button>
     </form>
   </div>

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from .config import Config, load_config
 from .db import Database
 from .rag.ai_store import AiStore
 from .rag.indexer_job import EmbeddingJob
+from .rag.ocr_job import OcrJob
 from .rag.retriever import RagIndexer
 from .rag.secret_store import SecretStoreError
 from .routers import agent as agent_router
@@ -36,12 +38,15 @@ from .routers import files as files_router
 from .routers import imports as imports_router
 from .routers import knowledge as knowledge_router
 from .routers import metadata as metadata_router
+from .routers import templates as templates_router
 from .services.chat_sessions import ChatSessionStore
 from .services.events import EventHub
 from .services.history import HistoryStore
 from .services.index_health import IndexHealth
 from .services.indexer import Indexer
+from .services.ocr import OcrService
 from .services.path_guard import PathError
+from .services.templates import TemplateService
 from .services.vault import (
     ConflictError,
     NotFoundError,
@@ -50,8 +55,16 @@ from .services.vault import (
     VaultError,
 )
 from .services.watcher import VaultWatcher
+from .version import __version__
 
-_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+def _frontend_dist() -> Path:
+    """前端静态产物目录：PyInstaller 冻结时位于 _MEIPASS（_internal）内。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS) / "frontend" / "dist"
+    return Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+
+_FRONTEND_DIST = _frontend_dist()
 
 
 def _json_error(status: int):
@@ -97,9 +110,15 @@ def create_app(config: Config | None = None) -> FastAPI:
             # 配置非法不阻断启动；状态端点会再次 configure 并报错
             print(f"warning: MCP 配置校验失败：{exc}")
         embedding_job = EmbeddingJob(db, rag, lambda: ai_store.load().active_embedding_job())
+        ocr_service = OcrService(db, rag)
+        ocr_job = OcrJob(ocr_service, vault, rag, lambda: ai_store.load())
         history_store = HistoryStore(config.data_path / "history.json")
         event_hub = EventHub()
         watcher = VaultWatcher(vault, indexer, rag, event_hub)
+        templates = TemplateService(
+            vault, history_store, indexer, rag,
+            watcher=watcher, event_hub=event_hub,
+        )
         watcher.start()
 
         app.state.config = config
@@ -109,6 +128,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         app.state.indexer = indexer
         app.state.index_health = index_health
         app.state.history = history_store
+        app.state.templates = templates
         app.state.ai_store = ai_store
         app.state.rag = rag
         app.state.agent_sessions = agent_sessions
@@ -116,15 +136,19 @@ def create_app(config: Config | None = None) -> FastAPI:
         app.state.agent_registry = agent_registry
         app.state.mcp_manager = mcp_manager
         app.state.embedding_job = embedding_job
+        app.state.ocr_service = ocr_service
+        app.state.ocr_job = ocr_job
         app.state.event_hub = event_hub
         app.state.watcher = watcher
         embedding_job.start()
+        ocr_job.start()
         yield
         embedding_job.stop()
+        ocr_job.stop()
         watcher.stop()
         mcp_manager.stop()
 
-    app = FastAPI(title="KnowledgeBase", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="KnowledgeBase", version=__version__, lifespan=lifespan)
 
     # 异常 -> HTTP 状态码
     app.add_exception_handler(PathError, _json_error(422))
@@ -159,6 +183,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     app.include_router(events_router.router)
     app.include_router(history_router.router)
     app.include_router(metadata_router.router)
+    app.include_router(templates_router.router)
     app.include_router(knowledge_router.router)
     app.include_router(chat_router.router)
     app.include_router(agent_router.router)

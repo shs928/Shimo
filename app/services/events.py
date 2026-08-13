@@ -1,8 +1,9 @@
 """事件总线：每客户端 asyncio queue 的 EventHub（SSE 推送）。
 
 事件：
-- {"type": "tree_changed"}                    目录树变化（外部创建/删除/移动）
-- {"type": "file_changed", "path": rel}       文件内容变化（外部修改）
+- {"type": "tree_changed"}                    普通目录树变化（外部创建/删除/移动）
+- {"type": "file_changed", "path": rel}       普通文件内容变化（外部修改）
+- {"type": "templates_changed"}               模板目录变化（不进入普通目录树/索引）
 
 应用内写入产生的重复事件由 Watcher 的自身写入窗口抑制。
 """

@@ -14,16 +14,22 @@ body,
 }
 
 html {
+  color-scheme: light dark;
   -webkit-text-size-adjust: 100%;
 }
 
 body {
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
   line-height: 1.5;
   background: var(--color-bg);
   color: var(--color-text);
   overflow: hidden; /* 全屏工作台，面板内部滚动 */
+}
+
+::selection {
+  background: var(--color-selection);
 }
 
 /* —— 全局焦点可见性（所有交互元素统一） —— */
@@ -31,9 +37,9 @@ body {
   outline: none;
 }
 :focus-visible {
-  outline: 2px solid var(--color-focus-ring);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
-  border-radius: 2px;
+  border-radius: var(--radius-control);
 }
 
 button,
@@ -48,7 +54,18 @@ button {
   cursor: pointer;
 }
 
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+button:disabled {
+  opacity: 0.55;
+}
+
 /* —— 表单控件（纸面） —— */
+input:not([type]),
 input[type="text"],
 input[type="password"],
 input[type="search"],
@@ -60,23 +77,44 @@ textarea {
   font: inherit;
   color: var(--color-text);
   background: var(--color-paper);
-  border: 1px solid var(--color-rule);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-rule-strong);
+  border-radius: var(--radius-control);
   padding: 5px 8px;
   min-height: var(--control-h);
-  transition: border-color var(--motion-fast) var(--ease),
+  transition: background var(--motion-fast) var(--ease),
+    border-color var(--motion-fast) var(--ease),
     box-shadow var(--motion-fast) var(--ease);
+}
+input:not([type]):hover:not(:disabled),
+input[type="text"]:hover:not(:disabled),
+input[type="password"]:hover:not(:disabled),
+input[type="search"]:hover:not(:disabled),
+input[type="number"]:hover:not(:disabled),
+input[type="url"]:hover:not(:disabled),
+input[type="email"]:hover:not(:disabled),
+select:hover:not(:disabled),
+textarea:hover:not(:disabled) {
+  border-color: var(--color-text-faint);
 }
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
   outline: none;
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px var(--color-focus-ring);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+input:disabled,
+select:disabled,
+textarea:disabled {
+  color: var(--color-text-faint);
+  background: var(--color-raised);
+  border-color: var(--color-rule);
+  opacity: 0.72;
 }
 input::placeholder,
 textarea::placeholder {
   color: var(--color-text-faint);
+  opacity: 1;
 }
 textarea {
   resize: vertical;
@@ -92,40 +130,51 @@ textarea {
   min-height: var(--control-h);
   padding: 0 12px;
   font-size: 13px;
+  font-weight: var(--weight-medium);
   color: var(--color-text);
   background: var(--color-paper);
-  border: 1px solid var(--color-rule);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-rule-strong);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-control);
   transition: background var(--motion-fast) var(--ease),
-    border-color var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease);
+    border-color var(--motion-fast) var(--ease),
+    color var(--motion-fast) var(--ease),
+    box-shadow var(--motion-fast) var(--ease);
 }
-.btn:hover {
+.btn:hover:not(:disabled) {
+  background: var(--color-hover);
   border-color: var(--color-accent);
-  color: var(--color-accent);
+  color: var(--color-accent-strong);
+}
+.btn:active:not(:disabled) {
+  box-shadow: none;
 }
 .btn--primary {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: #fff;
+  background: var(--color-accent-solid);
+  border-color: var(--color-accent-solid);
+  color: var(--color-on-solid);
 }
-.btn--primary:hover {
-  background: var(--color-accent-strong);
-  border-color: var(--color-accent-strong);
-  color: #fff;
+.btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-solid-hover);
+  border-color: var(--color-accent-solid-hover);
+  color: var(--color-on-solid);
 }
 .btn--danger {
-  background: var(--color-danger);
-  border-color: var(--color-danger);
-  color: #fff;
+  background: var(--color-danger-solid);
+  border-color: var(--color-danger-solid);
+  color: var(--color-on-solid);
 }
-.btn--danger:hover {
-  background: var(--color-danger-strong);
-  border-color: var(--color-danger-strong);
-  color: #fff;
+.btn--danger:hover:not(:disabled) {
+  background: var(--color-danger-solid-hover);
+  border-color: var(--color-danger-solid-hover);
+  color: var(--color-on-solid);
 }
 .btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  color: var(--color-text-faint);
+  background: var(--color-raised);
+  border-color: var(--color-rule);
+  box-shadow: none;
+  opacity: 0.72;
 }
 
 /* —— 图标按钮 —— */
@@ -136,22 +185,22 @@ textarea {
   border: none;
   background: transparent;
   color: var(--color-text-dim);
-  min-width: 26px;
-  min-height: 26px;
+  min-width: 28px;
+  min-height: 28px;
   padding: 0 4px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   transition: background var(--motion-fast) var(--ease),
     color var(--motion-fast) var(--ease);
 }
-.icon-btn:hover {
-  background: var(--color-raised);
+.icon-btn:hover:not(:disabled) {
+  background: var(--color-hover);
   color: var(--color-text);
 }
 .icon-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  color: var(--color-text-faint);
+  opacity: 0.55;
 }
-.icon-btn--danger:hover {
+.icon-btn--danger:hover:not(:disabled) {
   color: var(--color-danger);
   background: var(--color-danger-soft);
 }
@@ -172,7 +221,7 @@ textarea {
   }
 }
 .warn-icon {
-  color: var(--color-warning, var(--color-text-faint));
+  color: var(--color-warning);
 }
 mark,
 .hl {
@@ -195,7 +244,7 @@ code {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-rule);
+  background: var(--color-rule-strong);
   border-radius: 5px;
   border: 2px solid transparent;
   background-clip: content-box;

@@ -99,6 +99,17 @@ CREATE TABLE IF NOT EXISTS index_failures (
     updated_at  TEXT NOT NULL,
     PRIMARY KEY(path, subsystem)
 );
+
+CREATE TABLE IF NOT EXISTS doc_ocr (
+    file_path   TEXT PRIMARY KEY,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    progress    INTEGER NOT NULL DEFAULT 0,
+    chars       INTEGER NOT NULL DEFAULT 0,
+    text        TEXT NOT NULL DEFAULT '',
+    error       TEXT NOT NULL DEFAULT '',
+    updated_at  TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY(file_path) REFERENCES files_meta(path) ON DELETE CASCADE
+);
 """
 
 
@@ -147,9 +158,17 @@ class Database:
         with self.connect() as conn:
             conn.executescript(_SCHEMA)
             self._migrate_files_meta(conn)
+            self._migrate_doc_ocr(conn)
             self.fts_tokenizer = _ensure_fts(conn)
             # 只检测版本，不写回；重建成功后由 mark_schema_current() 标记
             self.needs_rebuild = self._check_schema_version(conn)
+
+    @staticmethod
+    def _migrate_doc_ocr(conn: sqlite3.Connection) -> None:
+        """兼容：早期 doc_ocr 表缺 text 列（识别结果文本），补齐。"""
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(doc_ocr)")}
+        if "text" not in columns:
+            conn.execute("ALTER TABLE doc_ocr ADD COLUMN text TEXT NOT NULL DEFAULT ''")
 
     def _check_schema_version(self, conn: sqlite3.Connection) -> bool:
         """检测 schema 版本是否需要重建；仅在需要时返回 True。

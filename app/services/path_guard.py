@@ -91,9 +91,14 @@ def resolve_in_root(root: Path, rel: str) -> Path:
     root_resolved = root.resolve()
     candidate = root_resolved / rel
 
-    # 已存在的符号链接可能指向外部：拒绝跟随
-    if candidate.is_symlink():
-        raise PathError("不允许通过符号链接访问 Vault 外部")
+    # 候选路径及其已存在父级中只要出现符号链接就拒绝，不跟随到 Vault 内外。
+    current = root_resolved
+    for part in Path(rel).parts:
+        current = current / part
+        if current.is_symlink():
+            raise PathError("不允许通过符号链接访问 Vault")
+        if not current.exists():
+            break
 
     try:
         resolved = candidate.resolve()
@@ -109,3 +114,9 @@ def resolve_in_root(root: Path, rel: str) -> Path:
 def is_hidden_rel(rel: str) -> bool:
     """判断路径任一分段是否以点开头（隐藏文件 / 目录）。"""
     return any(part.startswith(".") for part in PurePosixPath(rel).parts)
+
+
+def is_templates_rel(rel: str) -> bool:
+    """判断路径是否为保留的 templates 目录或其子孙（大小写不敏感）。"""
+    parts = PurePosixPath(rel.replace("\\", "/")).parts
+    return bool(parts) and parts[0].casefold() == "templates"

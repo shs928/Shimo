@@ -123,3 +123,35 @@ describe('workspace 持久化', () => {
     vi.unstubAllGlobals()
   })
 })
+
+describe('renderMarkdown 富文本格式化渲染', () => {
+  it('加粗/下划线/颜色 span 均渲染且通过消毒', async () => {
+    const { renderMarkdown } = await import('../../src/md')
+    const { html } = renderMarkdown(
+      '**粗体** <u>下划线</u> <span style="color: #e03e2d">红色</span> <span style="font-family: SimSun, serif">宋体</span>',
+      'a.md',
+    )
+    expect(html).toContain('<strong>粗体</strong>')
+    expect(html).toContain('<u>下划线</u>')
+    expect(html).toContain('style="color: #e03e2d"')
+    expect(html).toContain('font-family: SimSun')
+  })
+
+  it('脚本与事件属性被消毒移除，style 属性保留', async () => {
+    const { renderMarkdown } = await import('../../src/md')
+    const { html } = renderMarkdown(
+      '<span style="color: #e03e2d" onclick="alert(1)">红</span><script>alert(1)</script><img src=x onerror=alert(1)>',
+      'a.md',
+    )
+    expect(html).not.toContain('onclick')
+    expect(html).not.toContain('onerror')
+    expect(html).not.toContain('<script')
+    expect(html).toContain('style="color: #e03e2d"')
+  })
+
+  it('style 标签被禁止（不污染全局样式）', async () => {
+    const { renderMarkdown } = await import('../../src/md')
+    const { html } = renderMarkdown('<style>body{display:none}</style>正文', 'a.md')
+    expect(html).not.toContain('<style')
+  })
+})

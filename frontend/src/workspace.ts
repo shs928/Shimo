@@ -16,6 +16,7 @@ export interface WorkspaceState {
   rightDomain: 'marginalia' | 'assistant'
   marginaliaView: 'meta' | 'backlinks' | 'outgoing' | 'graph' | 'history'
   assistantView: 'ai' | 'agent'
+  centerView?: 'document' | 'templates'
   expanded: string[]
   savedAt: number
 }
@@ -52,6 +53,7 @@ export function saveWorkspace(state: {
   rightDomain: 'marginalia' | 'assistant'
   marginaliaView: 'meta' | 'backlinks' | 'outgoing' | 'graph' | 'history'
   assistantView: 'ai' | 'agent'
+  centerView?: 'document' | 'templates'
   expanded: Set<string>
 }): void {
   window.clearTimeout(saveTimer)
@@ -64,6 +66,7 @@ export function saveWorkspace(state: {
       rightDomain: state.rightDomain,
       marginaliaView: state.marginaliaView,
       assistantView: state.assistantView,
+      centerView: state.centerView ?? 'document',
       expanded: Array.from(state.expanded),
       savedAt: Date.now(),
     }

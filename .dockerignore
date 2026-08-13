@@ -1,0 +1,26 @@
+# 构建上下文精简：避免把 venv / node_modules / 本地数据带进镜像
+.git
+.agents
+.zcode
+.idea
+.venv
+venv
+__pycache__
+*.pyc
+*.egg-info
+.pytest_cache
+gui-test-screenshots
+.e2e-data
+.e2e-vault
+tests
+docs
+scripts
+shimo.spec
+Caddyfile.example
+README.md
+vault
+data
+frontend/node_modules
+frontend/test-results
+frontend/playwright-report
+frontend/dist

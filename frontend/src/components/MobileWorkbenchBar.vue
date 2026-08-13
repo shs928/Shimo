@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { Bot, BookOpen, StickyNote } from 'lucide-vue-next'
+import { Bot, BookOpen, LayoutTemplate, StickyNote } from 'lucide-vue-next'
 
 export type SheetKind = 'none' | 'index' | 'marginalia' | 'assistant'
 
-const props = defineProps<{ sheet: SheetKind }>()
+const props = defineProps<{ sheet: SheetKind; templateActive?: boolean }>()
 const emit = defineEmits<{
   (e: 'open', which: 'index' | 'marginalia' | 'assistant'): void
+  (e: 'templates'): void
   (e: 'close'): void
 }>()
 
@@ -34,14 +35,22 @@ watch(
     <button
       class="mw-btn"
       :class="{ on: sheet === 'index' }"
+      :aria-expanded="sheet === 'index'"
+      aria-controls="workspace-index"
       @click="trigger(($event.currentTarget as HTMLButtonElement), 'index')"
     >
       <BookOpen :size="18" />
       <span>目录</span>
     </button>
+    <button class="mw-btn" :class="{ on: templateActive }" @click="emit('templates')">
+      <LayoutTemplate :size="18" />
+      <span>模板</span>
+    </button>
     <button
       class="mw-btn"
       :class="{ on: sheet === 'marginalia' }"
+      :aria-expanded="sheet === 'marginalia'"
+      aria-controls="workspace-right"
       @click="trigger(($event.currentTarget as HTMLButtonElement), 'marginalia')"
     >
       <StickyNote :size="18" />
@@ -50,6 +59,8 @@ watch(
     <button
       class="mw-btn"
       :class="{ on: sheet === 'assistant' }"
+      :aria-expanded="sheet === 'assistant'"
+      aria-controls="workspace-right"
       @click="trigger(($event.currentTarget as HTMLButtonElement), 'assistant')"
     >
       <Bot :size="18" />

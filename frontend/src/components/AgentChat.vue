@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { History, Plus, RefreshCw, Send, Square, Trash2, Wrench } from 'lucide-vue-next'
+import { AlertTriangle, History, Plus, RefreshCw, Send, Square, Trash2, Wrench } from 'lucide-vue-next'
 import { api } from '../api'
 import IconButton from './IconButton.vue'
 import EmptyState from './EmptyState.vue'
@@ -260,7 +260,7 @@ onBeforeUnmount(() => controller?.abort())
         <div class="ai-msg-content">
           <span v-if="m.content">{{ m.content }}</span>
           <span v-else>…</span>
-          <div v-if="m.error" class="agent-error">⚠️ {{ m.error }}</div>
+          <div v-if="m.error" class="agent-error"><AlertTriangle :size="13" /> {{ m.error }}</div>
         </div>
 
         <!-- 工具执行日志 -->

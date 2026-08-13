@@ -16,7 +16,16 @@ export interface Tab {
   saveState: SaveState
   error: string
   /** 文档预览元信息（kind === 'doc' 时存在） */
-  docMeta?: { size: number; chars: number; truncated: boolean }
+  docMeta?: {
+    size: number
+    chars: number
+    truncated: boolean
+    has_text: boolean
+    ocr: boolean
+    ocr_status: string | null
+    ocr_progress: number
+    ocr_error: string
+  }
 }
 
 const DOC_EXT = /\.(pdf|docx|txt|csv)$/i
@@ -74,7 +83,16 @@ export async function openTab(path: string): Promise<void> {
       etag: null,
       saveState: 'saved',
       error: '',
-      docMeta: { size: pv.size, chars: pv.chars, truncated: pv.truncated },
+      docMeta: {
+        size: pv.size,
+        chars: pv.chars,
+        truncated: pv.truncated,
+        has_text: pv.has_text,
+        ocr: pv.ocr,
+        ocr_status: pv.ocr_status,
+        ocr_progress: pv.ocr_progress,
+        ocr_error: pv.ocr_error,
+      },
     })
   } else {
     const fc = await api.readFile(path)

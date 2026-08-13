@@ -1,11 +1,15 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// E2E：需要后端运行（webServer 自动启动 venv 后端 + 已构建的 frontend/dist）
+const python = process.platform === 'win32' ? '.venv\\Scripts\\python.exe' : '.venv/bin/python'
+const cleanE2eState =
+  'node -e "const fs=require(\'node:fs\');for(const dir of [\'.e2e-data\',\'.e2e-vault\'])fs.rmSync(dir,{recursive:true,force:true})"'
+const webServerCommand = `${cleanE2eState} && npm --prefix frontend run build && ${python} -m app`
+
 export default defineConfig({
   testDir: './e2e',
-  globalSetup: './e2e/global-setup.ts',
-  timeout: 30_000,
+  timeout: 60_000,
   fullyParallel: false,
+  workers: 1,
   retries: 0,
   reporter: [['list']],
   use: {
@@ -13,14 +17,22 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
-    { name: 'mobile', use: { ...devices['iPhone 13'], viewport: { width: 390, height: 844 } } },
+    {
+      name: 'desktop',
+      grep: /\[desktop\]/,
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: 'mobile',
+      grep: /\[mobile\]/,
+      use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 } },
+    },
   ],
   webServer: {
-    command: '.venv/bin/python -m app',
+    command: webServerCommand,
     url: 'http://127.0.0.1:8858/health/live',
     reuseExistingServer: false,
-    timeout: 30_000,
+    timeout: 120_000,
     cwd: '..',
     env: {
       SHIMO_PORT: '8858',

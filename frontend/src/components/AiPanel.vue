@@ -175,7 +175,7 @@ async function send(): Promise<void> {
             assistant.sources = payload.sources ?? []
           } else if (payload.type === 'error') {
             const assistant = messages.value[messages.value.length - 1]
-            assistant.content = `⚠️ ${payload.error}`
+            assistant.content = `错误：${payload.error}`
           }
         } catch {
           /* 忽略不完整事件 */
@@ -186,7 +186,7 @@ async function send(): Promise<void> {
     const err = e as Error
     if (err.name !== 'AbortError') {
       const assistant = messages.value[messages.value.length - 1]
-      assistant.content = `⚠️ ${err.message}`
+      assistant.content = `错误：${err.message}`
     }
   } finally {
     busy.value = false

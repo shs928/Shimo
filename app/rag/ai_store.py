@@ -90,6 +90,11 @@ class AgentCfg:
 
 
 @dataclass
+class OcrCfg:
+    enabled: bool = True  # 本地 OCR（扫描件识别），默认开启；与 AI 外呼无关
+
+
+@dataclass
 class McpServer:
     name: str
     url: str
@@ -105,7 +110,12 @@ class AiSettings:
     rerank: RerankCfg = field(default_factory=RerankCfg)
     vision: VisionCfg = field(default_factory=VisionCfg)
     agent: AgentCfg = field(default_factory=AgentCfg)
+    ocr: OcrCfg = field(default_factory=OcrCfg)
     mcp_servers: list[McpServer] = field(default_factory=list)
+
+    @property
+    def ocr_enabled(self) -> bool:
+        return bool(self.ocr.enabled)
 
     def provider(self, pid: str) -> Provider | None:
         return next((p for p in self.providers if p.id == pid), None)
@@ -315,6 +325,7 @@ class AiStore:
             "provider_id": "", "model": "", "max_iterations": 8,
             "system_prompt": "", "tools": dict(DEFAULT_TOOLS),
         })
+        out["ocr"] = _section(out.get("ocr"), {"enabled": True})
         out["mcp"] = _mcp_section(out.get("mcp"))
         return out
 
@@ -352,7 +363,7 @@ class AiStore:
                 self._secrets.delete(pid)
             out["providers"] = providers
 
-        for section in ("chat", "embedding", "rerank", "vision", "agent"):
+        for section in ("chat", "embedding", "rerank", "vision", "agent", "ocr"):
             if isinstance(payload.get(section), dict):
                 out[section] = _merge_section(base.get(section, {}), payload[section], section)
         # 兼容 v1 保存格式：chat/embedding 内联 base_url → 迁移为 provider
@@ -415,6 +426,7 @@ class AiStore:
                 system_prompt=agent.get("system_prompt", ""),
                 tools=dict(DEFAULT_TOOLS, **{k: bool(v) for k, v in (agent.get("tools") or {}).items()}),
             ),
+            ocr=OcrCfg(enabled=bool((raw.get("ocr") or {}).get("enabled", True))),
             mcp_servers=[McpServer(
                 name=s["name"], url=s["url"],
                 transport=str(s.get("transport") or "sse_legacy"),

@@ -16,9 +16,32 @@ from pathlib import Path
 from ..db import Database
 from .links import parse_links, resolve_markdown_target
 from .metadata import doc_title, parse_frontmatter, parse_headings
+from .path_guard import is_templates_rel
 from .vault import Vault, VaultError
 
 _TAG_RE = re.compile(r"(?<![\w/])#([\w\u4e00-\u9fff/-]+)")
+
+
+def query_tokens(query: str) -> list[str]:
+    """从自然语言问题中抽取检索关键词（去重、限量）。
+
+    - 字母数字串（长度 ≥2）；
+    - CJK 连续段：整段 + 2/3-gram（保证"送礼有哪些讲究"能拆出"送礼"命中笔记）。
+    """
+    tokens: list[str] = []
+    for word in re.findall(r"[A-Za-z0-9_]{2,}", query):
+        tokens.append(word)
+    for seg in re.findall(r"[\u4e00-\u9fff]{2,}", query):
+        tokens.append(seg)
+        for n in (2, 3):
+            tokens.extend(seg[i : i + n] for i in range(len(seg) - n + 1))
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in tokens:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out[:16]
 
 
 class Indexer:
@@ -73,11 +96,17 @@ class Indexer:
                 conn.execute("DELETE FROM headings")
                 for rel, title, text, tags, size, sha1, mtime_ns in prepared:
                     _insert_doc(conn, self.vault.root, rel, title, text, tags, size, sha1, mtime_ns)
-                # 清理 stale：Vault 已不存在的 Markdown 行（保留非 .md 占位与 RAG 数据）
+                # 清理 stale：仅删除已从磁盘消失的 Markdown 行；
+                # 解析失败（failed）的文件保留 files_meta 与其 RAG 数据，
+                # 避免瞬时读取/解析错误被误判为删除而级联清空 chunks/embeddings。
                 existing = {row[0] for row in conn.execute("SELECT path FROM files_meta")}
                 live = {p[0] for p in prepared}
-                for path in existing - live:
-                    if path.lower().endswith(".md"):
+                failed_paths = {f["path"] for f in failed}
+                for path in existing:
+                    # 模板目录永不进入普通/RAG 索引；重建顺带清理历史遗留记录。
+                    if is_templates_rel(path):
+                        conn.execute("DELETE FROM files_meta WHERE path=?", (path,))
+                    elif path not in live and path not in failed_paths and path.lower().endswith(".md"):
                         conn.execute("DELETE FROM files_meta WHERE path=?", (path,))
             self.resolve_all_links()
         return {"indexed": indexed, "failed": failed, "tokenizer": self.db.fts_tokenizer}
@@ -85,12 +114,20 @@ class Indexer:
     def iter_markdown_paths(self):
         root = self.vault.root
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            dirnames[:] = [
+                d for d in dirnames
+                if not d.startswith(".") and not (
+                    Path(dirpath) == root and d.casefold() == "templates"
+                )
+            ]
             for name in filenames:
                 if name.lower().endswith(".md"):
                     yield (Path(dirpath) / name).relative_to(root).as_posix()
 
     def index_file(self, rel: str) -> None:
+        if is_templates_rel(rel):
+            self.delete_path(rel)
+            return
         if not rel.lower().endswith(".md"):
             return
         fc = self.vault.read_markdown(rel)
@@ -131,6 +168,8 @@ class Indexer:
         """文件系统移动后，将旧前缀索引删除并索引新路径。"""
         self.delete_path(src)
         target = self.vault.root / dst
+        if is_templates_rel(dst):
+            return
         if target.is_file() and dst.lower().endswith(".md"):
             self.index_file(dst)
         elif target.is_dir():
@@ -175,9 +214,13 @@ class Indexer:
                    ORDER BY title LIMIT ?""",
                 (like, like, like, limit),
             ).fetchall()
-            return [dict(row) for row in rows]
+            return [dict(row) for row in rows if not is_templates_rel(row["path"])]
 
-        fts_query = '"' + query.replace('"', '""') + '"'
+        # 自然语言问题拆关键词后 OR 查询：整句 phrase 匹配对长问题召回过低
+        tokens = query_tokens(query)
+        if not tokens:
+            tokens = [query]
+        fts_query = " OR ".join('"' + t.replace('"', '""') + '"' for t in tokens)
         try:
             rows = conn.execute(
                 """SELECT path,title,
@@ -197,6 +240,8 @@ class Indexer:
         # 剥离 FTS snippet 的 <mark> 标记，前端基于纯文本高亮
         out = []
         for row in rows:
+            if is_templates_rel(row["path"]):
+                continue
             d = dict(row)
             d["snippet"] = (d.get("snippet") or "").replace("<mark>", "").replace("</mark>", "")
             out.append(d)

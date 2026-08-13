@@ -23,19 +23,27 @@ def is_document(path: str) -> bool:
 
 
 def parse_document(name: str, data: bytes) -> str:
-    """按扩展名提取文本；失败返回空字符串并记录日志。"""
-    ext = Path(name).suffix.lower()
+    """按扩展名提取文本；解析异常返回空字符串并记录日志（索引路径吞错）。
+
+    注意：扫描件 PDF（无文字层）解析成功但返回空文本，不属于异常。
+    """
     try:
-        if ext == ".pdf":
-            return _parse_pdf(data)
-        if ext == ".docx":
-            return _parse_docx(data)
-        if ext in (".txt", ".csv"):
-            return _parse_text(data)
-        return ""
+        return parse_document_strict(name, data)
     except Exception as exc:
         logger.warning("解析文档失败 %s: %s", name, exc)
         return ""
+
+
+def parse_document_strict(name: str, data: bytes) -> str:
+    """按扩展名提取文本；解析异常向上抛出（预览接口据此区分错误与无文字层）。"""
+    ext = Path(name).suffix.lower()
+    if ext == ".pdf":
+        return _parse_pdf(data)
+    if ext == ".docx":
+        return _parse_docx(data)
+    if ext in (".txt", ".csv"):
+        return _parse_text(data)
+    raise ValueError(f"不支持解析的类型：{ext}")
 
 
 def _parse_pdf(data: bytes) -> str:

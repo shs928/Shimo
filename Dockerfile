@@ -1,6 +1,7 @@
 # 拾墨 Shimo — 多阶段构建（前端 + 后端）
 # 构建：docker build -t shimo .
 # 运行：docker run -p 8848:8848 -v shimo-data:/app/data -v shimo-vault:/app/vault shimo
+# 发版：打 v* tag 后由 .github/workflows/release.yml 自动构建推送 GHCR。
 
 # ---------- 阶段 1：前端构建 ----------
 FROM node:20-alpine AS frontend
@@ -22,6 +23,10 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     SHIMO_HOST=0.0.0.0 \
     SHIMO_PORT=8848
+# onnxruntime 需要 libgomp1；rapidocr 依赖的 opencv-python 需要 libGL / glib2.0
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=backend /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=backend /usr/local/bin /usr/local/bin
 COPY app/ ./app/

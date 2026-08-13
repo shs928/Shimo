@@ -1,14 +1,17 @@
 """Vault 文件 API：目录树、读取、保存、移动、回收站、WikiLink 解析。"""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 
 from ..deps import csrf_guard, get_indexer, get_vault, require_auth
-from ..services.doc_parser import is_document, parse_document
+from ..services.doc_parser import is_document
 from ..services.indexer import Indexer
 from ..services.links import resolve_wiki_target
 from ..services.link_refactor import collect_affected, refactor_links
+from ..services.path_guard import is_templates_rel
 from ..services.vault import FileContent, MovePlan, NodeInfo, Vault
 
 router = APIRouter(prefix="/api/v1", tags=["files"], dependencies=[Depends(require_auth)])
@@ -31,8 +34,20 @@ def _mark_self_write(request: Request, rel: str) -> None:
         watcher.mark_self_write(rel)
 
 
+def _notify_template_change(request: Request, *paths: str) -> None:
+    if any(is_templates_rel(path) for path in paths):
+        request.app.state.event_hub.publish({"type": "templates_changed"})
+
+
 def _safe_index(request: Request, rel: str, kind: str = "index") -> str | None:
     """执行索引并返回失败信息；失败时记录到 index_failures（不撤销写入）。"""
+    if is_templates_rel(rel):
+        # 跳过新索引，同时移除升级前可能留下的派生记录。
+        if kind == "index":
+            request.app.state.indexer.delete_path(rel)
+        else:
+            _rag(request).delete_path(rel)
+        return None
     try:
         if kind == "index":
             request.app.state.indexer.index_file(rel)
@@ -45,16 +60,39 @@ def _safe_index(request: Request, rel: str, kind: str = "index") -> str | None:
 
 
 def _reindex_ai(request: Request, rel: str) -> None:
-    """重建单个文件的 AI 索引：.md 取原文，文档解析文本。"""
+    """重建单个文件的 AI 索引：.md 取原文；文档解析文本优先、扫描件用 OCR 结果。"""
     vault = get_vault(request)
     rag = _rag(request)
+    if is_templates_rel(rel):
+        return
     if rel.lower().endswith(".md"):
         fc = vault.read_markdown(rel)
         rag.reindex_file(rel, fc.content)
     elif is_document(rel):
-        text = parse_document(rel, (vault.root / rel).read_bytes())
+        text = request.app.state.ocr_service.text_for_index(vault, rel)
         if text:
             rag.reindex_file(rel, text)
+
+
+def _reindex_ai_tree(request: Request, rel: str) -> None:
+    """重建目录下所有可索引文件（.md + 文档）的 AI 索引。
+
+    目录移动/恢复时 files_meta 前缀删除会级联清空子孙 chunks，
+    必须递归重建，否则该目录的 RAG 数据永久丢失。
+    """
+    import os
+
+    vault = get_vault(request)
+    root = vault.root / rel
+    if not root.is_dir():
+        _reindex_ai(request, rel)
+        return
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        for name in filenames:
+            child = (Path(dirpath) / name).relative_to(vault.root).as_posix()
+            if name.lower().endswith(".md") or is_document(child):
+                _reindex_ai(request, child)
 
 
 # ---------- 请求 / 响应模型 ----------
@@ -125,6 +163,7 @@ def save_file(
         on_before_write=lambda rel, text, etag: request.app.state.history.save_snapshot(rel, text),
     )
     _mark_self_write(request, path)
+    _notify_template_change(request, path)
     warning = _safe_index(request, path, "index")
     rag_warning = _safe_index(request, path, "rag")
     if warning and not rag_warning:
@@ -143,6 +182,7 @@ def create(
 ) -> NodeInfo:
     node = vault.create(payload.path, payload.type, payload.initial_content)
     _mark_self_write(request, node.path)
+    _notify_template_change(request, node.path)
     if node.type == "file":
         _safe_index(request, node.path, "index")
         _safe_index(request, node.path, "rag")
@@ -181,11 +221,18 @@ def move(
             # 引用更新失败已回滚；移动本身成功，记录警告
             request.app.state.index_health.record(payload.dst, "index", str(exc))
     node = vault.move(payload.src, payload.dst)
+    _mark_self_write(request, payload.src)
+    _mark_self_write(request, payload.dst)
+    _notify_template_change(request, payload.src, payload.dst)
     try:
         request.app.state.indexer.move_path(payload.src, payload.dst)
-        _rag(request).delete_file(payload.src)
-        if node.type == "file":
-            _reindex_ai(request, node.path)
+        _rag(request).delete_path(payload.src)
+        if not is_templates_rel(payload.dst):
+            if node.type == "file":
+                _reindex_ai(request, node.path)
+            else:
+                # 目录移动：files_meta 前缀删除已级联清空子孙 chunks，需递归重建
+                _reindex_ai_tree(request, node.path)
         _health(request).clear(payload.src)
     except Exception as exc:
         _health(request).record(payload.dst, "index", str(exc))
@@ -200,9 +247,11 @@ def delete(
     path: str = Query(min_length=1),
 ) -> dict:
     vault.delete(path)
+    _mark_self_write(request, path)
+    _notify_template_change(request, path)
     try:
         request.app.state.indexer.delete_path(path)
-        _rag(request).delete_file(path)
+        _rag(request).delete_path(path)
         _health(request).clear(path)
     except Exception as exc:
         _health(request).record(path, "index", str(exc))
@@ -217,9 +266,25 @@ def restore(
     payload: RestoreIn = None,
 ) -> NodeInfo:
     node = vault.restore(payload.path, payload.target)
+    _mark_self_write(request, node.path)
+    _notify_template_change(request, node.path)
     if node.type == "file":
         _safe_index(request, node.path, "index")
         _safe_index(request, node.path, "rag")
+    else:
+        # 目录恢复：递归重建子文件的普通与 AI 索引（删除时已级联清空）
+        import os as _os
+
+        vault_root = vault.root
+        for dirpath, dirnames, filenames in _os.walk(vault_root / node.path):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for name in filenames:
+                child = (Path(dirpath) / name).relative_to(vault_root).as_posix()
+                if name.lower().endswith(".md"):
+                    _safe_index(request, child, "index")
+                    _safe_index(request, child, "rag")
+                elif is_document(child):
+                    _safe_index(request, child, "rag")
     return node
 
 

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote
 
-from .path_guard import PathError, normalize_rel, resolve_in_root
+from .path_guard import PathError, is_templates_rel, normalize_rel, resolve_in_root
 
 _WIKI_RE = re.compile(r"(!)?\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|([^\]]+))?\]\]")
 _MD_RE = re.compile(r"(!)?\[([^\]]*)\]\(([^)\s]+)(?:\s+[\"'][^\"']*[\"'])?\)")
@@ -115,7 +115,7 @@ def resolve_markdown_target(root: Path, source_path: str, target_raw: str) -> st
     for candidate in candidates:
         try:
             candidate = normalize_rel(candidate)
-            if candidate in seen:
+            if candidate in seen or is_templates_rel(candidate):
                 continue
             seen.add(candidate)
             if resolve_in_root(root, candidate).is_file():
@@ -140,7 +140,12 @@ def resolve_wiki_target(root: Path, current_dir: str, link: str) -> str | None:
 def _find_by_basename(root: Path, basename: str) -> list[str]:
     matches: list[str] = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        dirnames[:] = [
+            d for d in dirnames
+            if not d.startswith(".") and not (
+                Path(dirpath) == root and d.casefold() == "templates"
+            )
+        ]
         if basename in filenames:
             full = Path(dirpath) / basename
             matches.append(full.relative_to(root).as_posix())

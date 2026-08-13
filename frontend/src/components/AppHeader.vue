@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { List, X } from 'lucide-vue-next'
+import { LayoutTemplate, List, X } from 'lucide-vue-next'
 import { closeTab, state } from '../store'
 import type { Tab } from '../store'
 import IconButton from './IconButton.vue'
 
+const props = defineProps<{ templateActive?: boolean }>()
+
 const emit = defineEmits<{
   (e: 'logout'): void
   (e: 'notify', message: string, kind: 'info' | 'error'): void
+  (e: 'select', path: string): void
 }>()
 
 const listOpen = ref(false)
@@ -16,7 +19,7 @@ const activeTab = computed<Tab | null>(() => state.tabs.find((t) => t.path === s
 
 function tabClass(tab: Tab): Record<string, boolean> {
   return {
-    active: state.activePath === tab.path,
+    active: !props.templateActive && state.activePath === tab.path,
     dirty: tab.saveState === 'dirty',
     saving: tab.saveState === 'saving',
     conflict: tab.saveState === 'conflict',
@@ -43,6 +46,7 @@ function closeTabSafe(path: string): void {
 function switchTab(path: string): void {
   state.activePath = path
   listOpen.value = false
+  emit('select', path)
 }
 
 function onTabKeydown(e: KeyboardEvent, path: string): void {
@@ -63,7 +67,7 @@ function onTabKeydown(e: KeyboardEvent, path: string): void {
         class="tab"
         :class="tabClass(tab)"
         role="tab"
-        :aria-selected="state.activePath === tab.path"
+        :aria-selected="!templateActive && state.activePath === tab.path"
         :title="tab.path"
         tabindex="0"
         @click="switchTab(tab.path)"
@@ -85,8 +89,9 @@ function onTabKeydown(e: KeyboardEvent, path: string): void {
     <!-- 移动端：当前文稿 + 已打开笔记列表 -->
     <div class="mobile-doc">
       <button class="mobile-doc-title" @click="listOpen = !listOpen">
-        <List :size="15" />
-        <span class="mono">{{ activeTab?.name ?? '拾墨' }}</span>
+        <LayoutTemplate v-if="templateActive" :size="15" />
+        <List v-else :size="15" />
+        <span>{{ templateActive ? '模板中心' : activeTab?.name ?? '拾墨' }}</span>
       </button>
     </div>
     <div v-if="listOpen" class="tablist-sheet">

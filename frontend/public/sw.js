@@ -1,5 +1,5 @@
 /* 拾墨 Service Worker：只缓存静态资源，绝不缓存 /api 与未保存正文。 */
-const CACHE = 'shimo-static-v1'
+const CACHE = 'shimo-static-v2'
 const STATIC = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg']
 
 self.addEventListener('install', (event) => {

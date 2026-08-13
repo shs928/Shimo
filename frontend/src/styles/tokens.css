@@ -1,45 +1,62 @@
 /* ============================================================
-   拾墨 · 冷墨书案 — 设计令牌
-   案面 / 纸面 / 主墨 / 淡墨 / 青墨 / 朱批
-   组件样式一律引用语义 token（--color-*），禁止硬编码颜色。
-   深色主题只覆盖 --ink-* 基值，语义 token 通过 var() 动态解析。
+   拾墨 · 中性书案 — 设计令牌
+   中性浅灰外壳 / 纯白纸面 / 可访问绿色强调 / 深灰绿墨脊
+   组件样式一律引用语义 token（--color-*），避免硬编码主题颜色。
    ============================================================ */
 
 :root {
-  /* —— 案面（应用外壳） —— */
-  --ink-surface: #e9eef0;
-  --ink-paper: #fbfcfa;
-  --ink-raised: #f2f5f4;
-  --ink-rule: #d7dee0;
-  --ink-scrim: rgba(23, 38, 45, 0.35);
+  /* —— 中性外壳与纸面 —— */
+  --ink-surface: #f4f6f4;
+  --ink-paper: #ffffff;
+  --ink-raised: #f7f8f7;
+  --ink-hover: #f0f3f1;
+  --ink-rule: #e0e5e1;
+  --ink-rule-strong: #cbd3cd;
+  --ink-scrim: rgba(24, 34, 27, 0.38);
 
-  /* —— 墨 —— */
-  --ink-main: #17262d;
-  --ink-dim: #68777d;
-  --ink-faint: #97a3a7;
+  /* —— 普通文字 —— */
+  --ink-main: #202923;
+  --ink-dim: #59655d;
+  --ink-faint: #69746c;
 
-  /* —— 青墨（链接 / 焦点 / 当前项 / 引用） —— */
-  --ink-accent: #266f78;
-  --ink-accent-strong: #1d5961;
-  --ink-accent-soft: #e2ecee;
-  --ink-accent-glow: rgba(38, 111, 120, 0.35);
+  /* —— 绿色强调 —— */
+  --ink-accent: #2f7d4a;
+  --ink-accent-strong: #25663c;
+  --ink-accent-soft: #eaf5ed;
+  --ink-accent-glow: rgba(47, 125, 74, 0.28);
+  --ink-accent-solid: #2f7d4a;
+  --ink-accent-solid-hover: #25663c;
 
-  /* —— 朱批（冲突 / 错误 / 危险 / Agent 写确认） —— */
-  --ink-danger: #b64a3c;
-  --ink-danger-strong: #9c3d31;
-  --ink-danger-soft: #f8e9e6;
+  /* —— 状态色 —— */
+  --ink-success: #2f7d4a;
+  --ink-success-strong: #25663c;
+  --ink-success-soft: #eaf5ed;
+  --ink-warning: #946200;
+  --ink-warning-strong: #744d00;
+  --ink-warning-soft: #fff4d6;
+  --ink-info: #2563a6;
+  --ink-info-strong: #1c4f86;
+  --ink-info-soft: #eaf2fb;
+  --ink-info-solid: #1c4f86;
+  --ink-danger: #b43a3a;
+  --ink-danger-strong: #922f2f;
+  --ink-danger-soft: #fcecec;
+  --ink-danger-solid: #b43a3a;
+  --ink-danger-solid-hover: #922f2f;
 
-  /* —— 墨脊（蓝黑品牌导航，唯一记忆点） —— */
-  --ink-spine: #17262d;
-  --ink-spine-text: #b9c6cb;
-  --ink-spine-accent: #a5c9ce;
-  --ink-spine-hover: #22343c;
+  /* —— 墨脊（唯一深色品牌记忆点） —— */
+  --ink-spine: #26332c;
+  --ink-spine-text: #c8d2cb;
+  --ink-spine-accent: #a7d7b4;
+  --ink-spine-hover: #34453b;
 
-  /* —— 语义 token —— */
+  /* —— 颜色语义 token —— */
   --color-bg: var(--ink-surface);
   --color-paper: var(--ink-paper);
   --color-raised: var(--ink-raised);
+  --color-hover: var(--ink-hover);
   --color-rule: var(--ink-rule);
+  --color-rule-strong: var(--ink-rule-strong);
   --color-scrim: var(--ink-scrim);
   --color-text: var(--ink-main);
   --color-text-dim: var(--ink-dim);
@@ -47,11 +64,26 @@
   --color-accent: var(--ink-accent);
   --color-accent-strong: var(--ink-accent-strong);
   --color-accent-soft: var(--ink-accent-soft);
+  --color-accent-solid: var(--ink-accent-solid);
+  --color-accent-solid-hover: var(--ink-accent-solid-hover);
   --color-focus-ring: var(--ink-accent-glow);
+  --color-success: var(--ink-success);
+  --color-success-strong: var(--ink-success-strong);
+  --color-success-soft: var(--ink-success-soft);
+  --color-warning: var(--ink-warning);
+  --color-warning-strong: var(--ink-warning-strong);
+  --color-warning-soft: var(--ink-warning-soft);
+  --color-info: var(--ink-info);
+  --color-info-strong: var(--ink-info-strong);
+  --color-info-soft: var(--ink-info-soft);
+  --color-info-solid: var(--ink-info-solid);
   --color-danger: var(--ink-danger);
   --color-danger-strong: var(--ink-danger-strong);
   --color-danger-soft: var(--ink-danger-soft);
-  --color-selection: rgba(38, 111, 120, 0.16);
+  --color-danger-solid: var(--ink-danger-solid);
+  --color-danger-solid-hover: var(--ink-danger-solid-hover);
+  --color-on-solid: #ffffff;
+  --color-selection: rgba(47, 125, 74, 0.16);
   --color-spine: var(--ink-spine);
   --color-spine-text: var(--ink-spine-text);
   --color-spine-accent: var(--ink-spine-accent);
@@ -66,24 +98,44 @@
   --font-mono: "Cascadia Code", "JetBrains Mono", "SF Mono", Consolas,
     "Courier New", monospace;
 
-  /* —— 度量 —— */
+  /* —— 字号与字重 —— */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-display: 26px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* —— 间距与形状 —— */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-control: 5px;
+  --radius-panel: 8px;
+  --radius-overlay: 12px;
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-panel);
+  --radius-lg: var(--radius-overlay);
   --control-h: 32px;
   --touch-min: 44px;
+
+  /* —— 阴影：普通面板无阴影，仅控件和浮层使用 —— */
+  --shadow-control: 0 1px 2px rgba(24, 34, 27, 0.08);
+  --shadow-overlay: 0 12px 32px rgba(24, 34, 27, 0.16);
 
   /* —— 版心 / 栏宽 —— */
   --width-spine: 52px;
   --width-sidebar: 272px;
   --width-right: 316px;
-  --width-read: 70ch; /* 阅读版心 68–72ch */
-  --width-edit: 86ch; /* 编辑版心 82–88ch */
+  --width-read: 70ch;
+  --width-edit: 86ch;
 
   /* —— 动效 / 层级 —— */
   --motion-fast: 120ms;
@@ -97,30 +149,49 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --ink-surface: #0f171c;
-    --ink-paper: #162129;
-    --ink-raised: #1b2831;
-    --ink-rule: #283840;
-    --ink-scrim: rgba(5, 10, 13, 0.5);
+    --ink-surface: #151a16;
+    --ink-paper: #1c221d;
+    --ink-raised: #232a24;
+    --ink-hover: #293129;
+    --ink-rule: #343d36;
+    --ink-rule-strong: #465148;
+    --ink-scrim: rgba(5, 9, 6, 0.58);
 
-    --ink-main: #dde7ea;
-    --ink-dim: #8ba0a7;
-    --ink-faint: #5c6f76;
+    --ink-main: #edf2ee;
+    --ink-dim: #b3bdb5;
+    --ink-faint: #8d998f;
 
-    --ink-accent: #57a5b0;
-    --ink-accent-strong: #6fb6c0;
-    --ink-accent-soft: #1d3940;
-    --ink-accent-glow: rgba(87, 165, 176, 0.4);
+    --ink-accent: #79c88d;
+    --ink-accent-strong: #96d9a6;
+    --ink-accent-soft: #223b29;
+    --ink-accent-glow: rgba(121, 200, 141, 0.34);
+    --ink-accent-solid: #2f7d4a;
+    --ink-accent-solid-hover: #25663c;
 
-    --ink-danger: #e06a58;
-    --ink-danger-strong: #ef7d6b;
-    --ink-danger-soft: #3a2320;
+    --ink-success: #79c88d;
+    --ink-success-strong: #96d9a6;
+    --ink-success-soft: #223b29;
+    --ink-warning: #efc162;
+    --ink-warning-strong: #f7d58d;
+    --ink-warning-soft: #3d321c;
+    --ink-info: #86baf0;
+    --ink-info-strong: #a8cef5;
+    --ink-info-soft: #203449;
+    --ink-info-solid: #275f98;
+    --ink-danger: #f18a8a;
+    --ink-danger-strong: #ffaaaa;
+    --ink-danger-soft: #432727;
+    --ink-danger-solid: #a93737;
+    --ink-danger-solid-hover: #8d2d2d;
 
-    --ink-spine: #0b1216;
-    --ink-spine-text: #8fa3aa;
-    --ink-spine-accent: #6fb6c0;
-    --ink-spine-hover: #16242c;
+    --ink-spine: #1e2922;
+    --ink-spine-text: #bac7bd;
+    --ink-spine-accent: #8fc99e;
+    --ink-spine-hover: #2d3d32;
 
-    --color-selection: rgba(87, 165, 176, 0.22);
+    --color-on-solid: #ffffff;
+    --color-selection: rgba(121, 200, 141, 0.22);
+    --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.28);
+    --shadow-overlay: 0 14px 36px rgba(0, 0, 0, 0.42);
   }
 }

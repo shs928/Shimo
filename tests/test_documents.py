@@ -93,7 +93,7 @@ def test_preview_missing_file(client: TestClient):
 def test_preview_oversize_rejected(client: TestClient):
     from tests.test_rag import _import
 
-    _import(client, "", "big.txt", b"x" * (20 * 1024 * 1024 + 1))
+    _import(client, "", "big.txt", b"x" * (30 * 1024 * 1024 + 1))
     r = client.get("/api/v1/documents/preview", params={"path": "big.txt"})
     assert r.status_code == 400
     assert "过大" in r.text
@@ -107,6 +107,26 @@ def test_preview_corrupt_pdf(client: TestClient):
     # 解析失败 → 明确错误（400），不返回空成功
     assert r.status_code == 400
     assert "解析失败" in r.text
+
+
+def test_preview_scanned_pdf_no_text_layer(client: TestClient):
+    """扫描件（无文字层）：解析成功但无文本 → 200 + has_text=false + raw_url。"""
+    from tests.test_rag import _import
+
+    buf = io.BytesIO()
+    from reportlab.pdfgen import canvas
+
+    c = canvas.Canvas(buf)  # 空白页：合法 PDF 但没有任何文字层
+    c.showPage()
+    c.save()
+
+    _import(client, "", "扫描件.pdf", buf.getvalue(), "application/pdf")
+    r = client.get("/api/v1/documents/preview", params={"path": "扫描件.pdf"})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["has_text"] is False
+    assert data["text"] == ""
+    assert data["raw_url"] == "/api/v1/raw/扫描件.pdf"
 
 
 def test_preview_truncates_long_text(client: TestClient):

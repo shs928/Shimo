@@ -31,4 +31,6 @@ def client(tmp_path):
 
         tc.app.state.ai_store._secrets = InMemorySecretStore()
         tc.post("/api/v1/auth/init", json={"password": "test-password"})
+        # 默认关闭本地 OCR：测试不加载识别引擎（重依赖），OCR 相关测试自行开启
+        tc.post("/api/v1/ai/config", json={"ocr": {"enabled": False}})
         yield tc

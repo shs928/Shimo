@@ -14,6 +14,7 @@ from pathlib import Path
 from ..db import Database
 from ..services.indexer import Indexer
 from ..services.metadata import parse_frontmatter
+from ..services.path_guard import is_templates_rel
 
 _EXCLUDE_PREFIXES = (".trash/",)
 _EMBED_SIG_KEY = "embedding_signature"
@@ -46,7 +47,7 @@ class RagIndexer:
         self.db = db
 
     def is_excluded(self, rel: str, text: str) -> bool:
-        if any(rel.startswith(p) for p in _EXCLUDE_PREFIXES):
+        if is_templates_rel(rel) or any(rel.startswith(p) for p in _EXCLUDE_PREFIXES):
             return True
         if any(part.startswith(".") for part in Path(rel).parts):
             return True
@@ -96,12 +97,32 @@ class RagIndexer:
             conn.execute("DELETE FROM embeddings WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path=?)", (rel,))
             conn.execute("DELETE FROM chunks WHERE file_path=?", (rel,))
 
+    def delete_path(self, rel: str) -> None:
+        """删除文件或目录前缀下的 RAG 块。"""
+        prefix = rel.rstrip("/") + "/"
+        with self.db.connect() as conn:
+            paths = [
+                row[0] for row in conn.execute("SELECT DISTINCT file_path FROM chunks")
+                if row[0] == rel or row[0].startswith(prefix)
+            ]
+            for path in paths:
+                conn.execute(
+                    "DELETE FROM embeddings WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path=?)",
+                    (path,),
+                )
+                conn.execute("DELETE FROM chunks WHERE file_path=?", (path,))
+
     def pending_chunks(self, batch: int = 32) -> list[tuple[int, str]]:
         conn = self.db.connect()
         rows = conn.execute(
-            "SELECT id,text FROM chunks WHERE ai_indexed=0 ORDER BY id LIMIT ?", (batch,)
+            """SELECT id,text FROM chunks
+               WHERE ai_indexed=0
+                 AND lower(file_path) != 'templates'
+                 AND lower(file_path) NOT LIKE 'templates/%'
+               ORDER BY id LIMIT ?""",
+            (batch,),
         ).fetchall()
-        return [(row[0], row[1]) for row in rows]
+        return [(row["id"], row["text"]) for row in rows]
 
     def ensure_embedding_signature(self, provider_id: str, base_url: str, model: str) -> bool:
         """Embedding 模型签名（provider_id + base_url + model）变化时重置向量库。
@@ -197,11 +218,14 @@ class RagIndexer:
                 """SELECT c.file_path,c.heading,c.line_start,c.line_end,c.text,e.vector
                    FROM chunks c JOIN embeddings e ON e.chunk_id=c.id"""
             ).fetchall()
-            scored = [(dict(r) | {"score": _cosine(query_embedding, _unpack(r["vector"]))}) for r in rows]
+            scored = [
+                dict(r) | {"score": _cosine(query_embedding, _unpack(r["vector"]))}
+                for r in rows if not is_templates_rel(r["file_path"])
+            ]
             scored.sort(key=lambda x: x["score"], reverse=True)
             candidates = scored[:k]
         else:
-            # FTS-only 降级：命中文件取前 3 块；非 .md 文档块按 LIKE 补充
+            # FTS-only 降级：命中文件取前 3 块；非 .md 文档块按多关键词 LIKE 补充
             indexer = Indexer(self.root, self.db)
             hits = indexer.search(query, limit=8)
             conn = self.db.connect()
@@ -216,20 +240,28 @@ class RagIndexer:
                 if len(candidates) >= k:
                     break
             if len(candidates) < k:
-                like = f"%{query}%"
-                rows = conn.execute(
-                    """SELECT file_path,heading,line_start,line_end,text
-                       FROM chunks
-                       WHERE file_path NOT LIKE '%.md' AND text LIKE ? ESCAPE '\\'
-                       ORDER BY id LIMIT ?""",
-                    (like, k - len(candidates)),
-                ).fetchall()
-                seen = {c["file_path"] for c in candidates}
-                for r in rows:
-                    if r["file_path"] in seen:
-                        continue
-                    candidates.append(dict(r) | {"score": 0.0})
-                    seen.add(r["file_path"])
+                # 自然语言问题拆关键词：任一关键词命中即召回（整句 LIKE 对长问题无效）
+                from ..services.indexer import query_tokens
+
+                tokens = query_tokens(query)
+                if len(tokens) < 2 and len(query) >= 2:
+                    tokens = [query]
+                if tokens:
+                    clause = " OR ".join(["text LIKE ? ESCAPE '\\'"] * len(tokens))
+                    params = [f"%{t}%" for t in tokens]
+                    rows = conn.execute(
+                        f"""SELECT file_path,heading,line_start,line_end,text
+                           FROM chunks
+                           WHERE file_path NOT LIKE '%.md' AND ({clause})
+                           ORDER BY id LIMIT ?""",
+                        [*params, k - len(candidates)],
+                    ).fetchall()
+                    seen = {c["file_path"] for c in candidates}
+                    for r in rows:
+                        if r["file_path"] in seen or is_templates_rel(r["file_path"]):
+                            continue
+                        candidates.append(dict(r) | {"score": 0.0})
+                        seen.add(r["file_path"])
             candidates = candidates[:k]
         return candidates
 

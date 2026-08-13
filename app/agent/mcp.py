@@ -222,12 +222,19 @@ class McpManager:
 
         from mcp import Client
 
-        streams = await gen.__aenter__()
-        conn._gen = gen
-        client = Client(streams.read_stream, streams.write_stream)
+        # SDK 2.x：Client 只接受一个位置参数（Server|MCPServer|Transport|str），
+        # transport 生成器（sse_client/streamable_http_client）实现 Transport 协议，
+        # 直接整体传入，由其 exit stack 管理生命周期。拆成 (read, write) 两个
+        # 位置参数会抛 TypeError。
+        client = Client(gen)
         await client.__aenter__()
         conn.client = client
-        tools = await client.list_tools()
+        conn._gen = None  # transport 生命周期由 client 的 exit stack 管理
+        try:
+            tools = await client.list_tools()
+        except Exception:
+            await self._close_conn(conn)
+            raise
         conn._tools = [
             {
                 "name": t.name,

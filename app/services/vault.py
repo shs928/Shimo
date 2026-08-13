@@ -123,6 +123,9 @@ class Vault:
                 name = entry.name
                 if name.startswith(".") and not include_hidden:
                     continue
+                # templates 是模板子系统的保留目录，不出现在普通根目录树。
+                if not rel and name.casefold() == "templates":
+                    continue
                 try:
                     st = entry.stat(follow_symlinks=False)
                 except OSError:

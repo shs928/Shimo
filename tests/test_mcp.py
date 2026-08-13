@@ -198,6 +198,47 @@ def test_call_invalid_and_unconnected(manager):
     assert "未连接" in result
 
 
+def test_real_discover_path_transport_protocol(manager, monkeypatch):
+    """回归（SDK 2.0 单参数构造）：走真实 _discover，不替换方法本身。
+
+    修复背景：曾以 Client(read_stream, write_stream) 两个位置参数构造，
+    而 mcp 2.0 的 Client.__init__ 只接受一个位置参数（Transport 协议），
+    导致真实网络连接必然 TypeError 且被 ensure_connected 吞掉。
+    本测试仅替换底层 sse_client 生成器，Client 构造/握手/list_tools/call
+    全部走真实 SDK 代码路径。
+    """
+    import mcp.client.sse as sse_mod
+    from mcp.client._memory import InMemoryTransport
+
+    server = _echo_server()
+    monkeypatch.setattr(sse_mod, "sse_client", lambda url: InMemoryTransport(server))
+
+    manager.configure([FakeServerCfg("echo", "https://mcp.local", transport="sse_legacy")])
+    manager.ensure_connected("echo")
+
+    entries = manager.tool_entries()
+    assert entries[0]["name"] == "mcp__echo__echo"
+    status, result = manager.call("mcp__echo__echo", {"text": "你好"})
+    assert status == "ok"
+    assert result == "echo:你好"
+
+
+def test_real_discover_path_streamable_http(manager, monkeypatch):
+    """同上的 streamable_http 分支（真实 _discover）。"""
+    import mcp.client.streamable_http as http_mod
+    from mcp.client._memory import InMemoryTransport
+
+    server = _echo_server()
+    monkeypatch.setattr(http_mod, "streamable_http_client", lambda url: InMemoryTransport(server))
+
+    manager.configure([FakeServerCfg("echo", "https://mcp.local", transport="streamable_http")])
+    manager.ensure_connected("echo")
+
+    status, result = manager.call("mcp__echo__echo", {"text": "hi"})
+    assert status == "ok"
+    assert result == "echo:hi"
+
+
 def test_manager_start_stop_idempotent():
     m = McpManager()
     m.start()

@@ -4,6 +4,15 @@
 
 拾墨（Shimo）——轻量、文件优先的个人知识库。Markdown 文件就是你的知识资产，可在线编辑、支持层级目录、回收站与全文搜索。本地一键启动，后续可部署云端。
 
+## 部署（发行版，无需源码）
+
+面向其他用户的「一键本地部署」发行包，构建与发布由 GitHub Actions 自动完成：
+
+- **Windows 便携版**：下载 `Shimo-<版本>-win64.zip` → 解压 → 双击 `Shimo.exe`，免装任何依赖，包内不含源码。
+- **Docker 镜像**：一条 `docker run` 命令，支持 Win/Mac/Linux。
+
+详见 **[docs/部署指南.md](docs/部署指南.md)**（含用户安装步骤、AI 凭据配置、备份迁移、发版流程）。
+
 ## 快速开始
 
 要求：Python 3.10+（Windows / macOS / Linux）。
@@ -99,10 +108,10 @@ python -m app
 - [x] 索引失败可观测（失败清单 + 重试）
 - [x] Provider 协议错误处理（契约校验、结构化错误）
 - [x] 发行：Dockerfile / docker-compose / Caddy 示例 / PWA / /health/ready
+- [x] 发行：Windows 便携版 exe（PyInstaller onedir + 自动发布 CI：GitHub Release + GHCR 镜像）
 
 ### 路线图（后续）
 
-- 便携版 exe（PyInstaller spec 已提供，需各平台构建）
 - 移动端完整适配打磨、图谱全屏交互增强
 - Playwright E2E 全流程覆盖（配置已就绪）
 

@@ -4,8 +4,8 @@
   "description": "轻量、文件优先的个人知识库",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#e9eef0",
-  "theme_color": "#17262d",
+  "background_color": "#f4f6f4",
+  "theme_color": "#26332c",
   "icons": [
     {
       "src": "/icon.svg",

@@ -1,12 +1,24 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  Bold,
+  Code,
+  Eraser,
+  Heading1,
+  Heading2,
+  Heading3,
+  Italic,
+  Palette,
+  Strikethrough,
+  Underline,
+} from 'lucide-vue-next'
 import { EditorView, keymap, lineNumbers, placeholder } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { api } from '../api'
-import { activeTab, state } from '../store'
+import { state } from '../store'
 import { renderAfter, renderMarkdown } from '../md'
 import AiActionMenu from './AiActionMenu.vue'
 
@@ -17,6 +29,10 @@ const host = ref<HTMLElement | null>(null)
 const previewEl = ref<HTMLElement | null>(null)
 const wrapEl = ref<HTMLElement | null>(null)
 const mode = ref<'edit' | 'preview' | 'split'>('edit')
+
+function editorTab() {
+  return state.tabs.find((tab) => tab.path === props.tabPath) ?? null
+}
 
 /** 右键 AI 操作菜单状态（选区 + 屏幕坐标） */
 const actionMenu = ref<{ x: number; y: number; from: number; to: number; text: string } | null>(null)
@@ -106,7 +122,7 @@ function onEditorDrop(event: DragEvent): boolean {
 async function importDocument(file: File): Promise<void> {
   emit('notify', '正在导入文档…', 'info')
   try {
-    const tab = activeTab()
+    const tab = editorTab()
     const dir = tab ? tab.path.split('/').slice(0, -1).join('/') : ''
     const r = await api.importFile(file, dir)
     emit('notify', `已导入：${r.name}`, 'info')
@@ -139,6 +155,139 @@ function applyActionResult(result: string, replace: boolean): void {
   scheduleSave()
 }
 
+// ---------- 富文本工具栏 ----------
+
+/** 字体候选（value 为 CSS font-family，空 = 清除） */
+const FONTS = [
+  { label: '宋体', css: 'SimSun, "Songti SC", serif' },
+  { label: '黑体', css: 'SimHei, "Microsoft YaHei", "PingFang SC", sans-serif' },
+  { label: '楷体', css: 'KaiTi, "Kaiti SC", STKaiti, serif' },
+  { label: '等宽', css: '"Cascadia Code", Consolas, "Courier New", monospace' },
+]
+/** 文字颜色候选（value 为空 = 清除颜色） */
+const COLORS = [
+  { name: '默认', value: '' },
+  { name: '红', value: '#e03e2d' },
+  { name: '橙', value: '#e67e22' },
+  { name: '黄', value: '#c99816' },
+  { name: '绿', value: '#2e8b57' },
+  { name: '蓝', value: '#2f6fa3' },
+  { name: '紫', value: '#8e5bb8' },
+  { name: '灰', value: '#7f8c8d' },
+]
+
+const showColor = ref(false)
+const colorWrap = ref<HTMLElement | null>(null)
+const fontSel = ref('')
+
+/** 包裹/切换选中文本；再次点击同一标记时解除。空选区插入占位并选中，便于直接输入。 */
+function wrapToggle(before: string, after: string, placeholder: string): void {
+  if (!view) return
+  const sel = view.state.selection.main
+  const text = view.state.doc.sliceString(sel.from, sel.to)
+  if (text.startsWith(before) && text.endsWith(after) && text.length >= before.length + after.length) {
+    const inner = text.slice(before.length, text.length - after.length)
+    view.dispatch({ changes: { from: sel.from, to: sel.to, insert: inner } })
+    view.focus()
+    scheduleSave()
+    return
+  }
+  const insert = before + (text || placeholder) + after
+  const start = sel.from + before.length
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert },
+    selection: { anchor: start, head: start + (text || placeholder).length },
+  })
+  view.focus()
+  scheduleSave()
+}
+
+/** 标题切换：对选区覆盖的每一行切换指定级别（0 = 清除标题） */
+function toggleHeading(level: number): void {
+  if (!view) return
+  const sel = view.state.selection.main
+  const changes: { from: number; to?: number; insert: string }[] = []
+  let pos = sel.from
+  for (;;) {
+    const line = view.state.doc.lineAt(pos)
+    const m = /^(#{1,6})\s/.exec(line.text)
+    if (level === 0) {
+      if (m) changes.push({ from: line.from, to: line.from + m[0].length, insert: '' })
+    } else if (m && m[1].length === level) {
+      changes.push({ from: line.from, to: line.from + m[0].length, insert: '' })
+    } else if (m) {
+      changes.push({ from: line.from, to: line.from + m[1].length, insert: '#'.repeat(level) })
+    } else if (line.text.trim()) {
+      changes.push({ from: line.from, insert: '#'.repeat(level) + ' ' })
+    }
+    if (pos >= sel.to) break
+    pos = line.to + 1
+  }
+  if (changes.length) {
+    view.dispatch({ changes })
+    view.focus()
+    scheduleSave()
+  }
+}
+
+/** 提取被特定 style 属性包裹的 span 内容（用于改色/改字体时避免嵌套） */
+function unwrapStyleSpan(text: string, prop: string): string | null {
+  const re = new RegExp(`^<span style="${prop}:\\s*[^"]*">([\\s\\S]*)<\\/span>$`)
+  const m = re.exec(text)
+  return m ? m[1] : null
+}
+
+/** 文字颜色：选中文本包 color span；选"默认"清除颜色 */
+function applyColor(color: string): void {
+  showColor.value = false
+  if (!view) return
+  const sel = view.state.selection.main
+  const text = view.state.doc.sliceString(sel.from, sel.to)
+  const inner = unwrapStyleSpan(text, 'color')
+  if (inner !== null) {
+    view.dispatch({
+      changes: {
+        from: sel.from,
+        to: sel.to,
+        insert: color ? `<span style="color: ${color}">${inner}</span>` : inner,
+      },
+    })
+    view.focus()
+    scheduleSave()
+    return
+  }
+  if (!color) return
+  wrapToggle(`<span style="color: ${color}">`, '</span>', '彩色文字')
+}
+
+/** 字体族：包 font-family span；选择"默认字体"清除 */
+function applyFont(css: string): void {
+  fontSel.value = ''
+  if (!view) return
+  const sel = view.state.selection.main
+  const text = view.state.doc.sliceString(sel.from, sel.to)
+  const inner = unwrapStyleSpan(text, 'font-family')
+  if (inner !== null) {
+    view.dispatch({
+      changes: {
+        from: sel.from,
+        to: sel.to,
+        insert: css ? `<span style="font-family: ${css}">${inner}</span>` : inner,
+      },
+    })
+    view.focus()
+    scheduleSave()
+    return
+  }
+  if (!css) return
+  wrapToggle(`<span style="font-family: ${css}">`, '</span>', '示例文字')
+}
+
+function onDocMouseDown(e: MouseEvent): void {
+  if (!showColor.value) return
+  if (!colorWrap.value?.contains(e.target as Node)) showColor.value = false
+}
+
 async function uploadAndInsert(image: File): Promise<void> {
   emit('notify', '正在上传图片…', 'info')
   try {
@@ -159,6 +308,9 @@ function buildState(content: string): EditorState {
       lineNumbers(),
       history(),
       keymap.of([
+        { key: 'Mod-b', run: () => { wrapToggle('**', '**', '加粗文字'); return true } },
+        { key: 'Mod-i', run: () => { wrapToggle('*', '*', '斜体文字'); return true } },
+        { key: 'Mod-u', run: () => { wrapToggle('<u>', '</u>', '下划线文字'); return true } },
         { key: 'Mod-s', run: () => { void runSave(); return true } },
         ...defaultKeymap,
         ...historyKeymap,
@@ -178,7 +330,7 @@ function buildState(content: string): EditorState {
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           // 实时同步到 tab.content，保证预览与未保存内容一致
-          const tab = activeTab()
+          const tab = editorTab()
           if (tab) {
             tab.content = update.view.state.doc.toString()
             tab.saveState = tab.content === tab.savedContent ? 'saved' : 'dirty'
@@ -192,7 +344,7 @@ function buildState(content: string): EditorState {
 
 function mountEditor(): void {
   if (!host.value || view) return
-  const tab = activeTab()
+  const tab = editorTab()
   if (!tab) return
   view = new EditorView({ state: buildState(tab.content), parent: host.value })
 }
@@ -204,7 +356,7 @@ function unmountEditor(): void {
 
 /** 将编辑器当前内容同步回 tab（切换/销毁前调用，避免静默丢失） */
 function syncContent(): void {
-  const tab = activeTab()
+  const tab = editorTab()
   if (tab && view) {
     tab.content = view.state.doc.toString()
     tab.saveState = tab.content === tab.savedContent ? 'saved' : 'dirty'
@@ -212,7 +364,7 @@ function syncContent(): void {
 }
 
 function scheduleSave(): void {
-  const tab = activeTab()
+  const tab = editorTab()
   if (!tab) return
   tab.saveState = tab.content === tab.savedContent ? 'saved' : 'dirty'
   if (tab.saveState === 'saved') return
@@ -239,7 +391,7 @@ async function runSave(): Promise<void> {
 }
 
 async function doSave(): Promise<void> {
-  const tab = activeTab()
+  const tab = editorTab()
   if (!tab) return
   syncContent()
   if (tab.content === tab.savedContent && tab.saveState !== 'error') {
@@ -265,8 +417,25 @@ async function doSave(): Promise<void> {
   }
 }
 
+/** 立即同步并等待保存完成，供离开模板编辑视图前安全刷新模板详情。 */
+async function flushSave(): Promise<boolean> {
+  window.clearTimeout(saveTimer)
+  syncContent()
+  if (saveInFlight) {
+    savePending = true
+    while (saveInFlight) await new Promise((resolve) => window.setTimeout(resolve, 25))
+  }
+  window.clearTimeout(saveTimer)
+  savePending = false
+  await runSave()
+  while (saveInFlight) await new Promise((resolve) => window.setTimeout(resolve, 25))
+  return editorTab()?.saveState === 'saved'
+}
+
+defineExpose({ flushSave })
+
 const rendered = computed(() => {
-  const tab = activeTab()
+  const tab = editorTab()
   return tab ? renderMarkdown(tab.content, tab.path).html : ''
 })
 
@@ -315,6 +484,7 @@ onMounted(() => {
   mountEditor()
   void updatePreview()
   window.addEventListener('outline-jump', onOutlineJump)
+  window.addEventListener('mousedown', onDocMouseDown)
   mobileMq.addEventListener('change', onMobileMqChange)
   darkMq.addEventListener('change', onDarkMqChange)
   // 中央宽度不足时禁用分屏
@@ -329,11 +499,12 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.clearTimeout(saveTimer)
   // 有未保存修改时，卸载前同步内容并立即触发保存（fire-and-forget）
-  if (activeTab()?.saveState !== 'saved') {
+  if (editorTab()?.saveState !== 'saved') {
     syncContent()
-    if (activeTab()?.saveState === 'dirty') void runSave()
+    if (editorTab()?.saveState === 'dirty') void runSave()
   }
   window.removeEventListener('outline-jump', onOutlineJump)
+  window.removeEventListener('mousedown', onDocMouseDown)
   mobileMq.removeEventListener('change', onMobileMqChange)
   darkMq.removeEventListener('change', onDarkMqChange)
   window.clearTimeout(renderTimer)
@@ -356,6 +527,39 @@ onBeforeUnmount(() => {
         >
           分屏
         </button>
+      </div>
+      <div v-if="mode !== 'preview'" class="editor-format" role="toolbar" aria-label="文本格式">
+        <button class="fmt-btn" title="一级标题" @click="toggleHeading(1)"><Heading1 :size="15" /></button>
+        <button class="fmt-btn" title="二级标题" @click="toggleHeading(2)"><Heading2 :size="15" /></button>
+        <button class="fmt-btn" title="三级标题" @click="toggleHeading(3)"><Heading3 :size="15" /></button>
+        <button class="fmt-btn" title="清除标题（正文）" @click="toggleHeading(0)"><Eraser :size="14" /></button>
+        <span class="fmt-sep" />
+        <button class="fmt-btn" title="加粗（Ctrl+B）" @click="wrapToggle('**', '**', '加粗文字')"><Bold :size="15" /></button>
+        <button class="fmt-btn" title="斜体（Ctrl+I）" @click="wrapToggle('*', '*', '斜体文字')"><Italic :size="15" /></button>
+        <button class="fmt-btn" title="下划线（Ctrl+U）" @click="wrapToggle('<u>', '</u>', '下划线文字')"><Underline :size="15" /></button>
+        <button class="fmt-btn" title="删除线" @click="wrapToggle('~~', '~~', '删除线文字')"><Strikethrough :size="15" /></button>
+        <button class="fmt-btn" title="行内代码" @click="wrapToggle('`', '`', '代码')"><Code :size="15" /></button>
+        <span class="fmt-sep" />
+        <span ref="colorWrap" class="color-wrap">
+          <button class="fmt-btn" title="文字颜色" @click="showColor = !showColor"><Palette :size="15" /></button>
+          <div v-if="showColor" class="color-pop" role="menu">
+            <button
+              v-for="c in COLORS"
+              :key="c.value || 'default'"
+              class="color-chip"
+              :class="{ none: !c.value }"
+              :style="c.value ? { background: c.value } : {}"
+              :title="c.name"
+              @click="applyColor(c.value)"
+            >
+              {{ c.value ? '' : '默认' }}
+            </button>
+          </div>
+        </span>
+        <select v-model="fontSel" class="fmt-select" title="字体" aria-label="字体" @change="applyFont(fontSel)">
+          <option value="">字体</option>
+          <option v-for="f in FONTS" :key="f.label" :value="f.css">{{ f.label }}</option>
+        </select>
       </div>
       <span class="toolbar-hint">支持 [[WikiLink]]、$公式$、```mermaid 图表；粘贴图片自动上传</span>
       <button class="btn save-btn" @click="runSave">保存</button>

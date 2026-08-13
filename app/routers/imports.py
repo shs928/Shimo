@@ -11,9 +11,9 @@ from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from pydantic import BaseModel
 
 from ..deps import csrf_guard, get_indexer, get_vault, require_auth
-from ..services.doc_parser import SUPPORTED_EXT, is_document, parse_document
+from ..services.doc_parser import SUPPORTED_EXT, is_document
 from ..services.indexer import Indexer
-from ..services.path_guard import validate_name
+from ..services.path_guard import is_templates_rel, validate_name
 from ..services.vault import Vault, VaultError
 
 router = APIRouter(prefix="/api/v1", tags=["import"], dependencies=[Depends(require_auth)])
@@ -60,24 +60,35 @@ async def import_file(
         watcher.mark_self_write(node.path)
 
     parsed_chars = 0
+    ocr_status = None
     try:
-        if node.path.lower().endswith(".md"):
+        if is_templates_rel(node.path):
+            request.app.state.event_hub.publish({"type": "templates_changed"})
+        elif node.path.lower().endswith(".md"):
             fc = vault.read_markdown(node.path)
             indexer.index_file(node.path)
             _rag(request).reindex_file(node.path, fc.content)
             parsed_chars = len(fc.content)
         elif is_document(node.path):
-            text = parse_document(node.path, data)
+            ocr_service = request.app.state.ocr_service
+            text = ocr_service.text_for_index(vault, node.path)
             if text:
                 _rag(request).reindex_file(node.path, text)
                 parsed_chars = len(text)
+            else:
+                # 扫描件 PDF：OCR 任务已入队（后台识别完成后自动重建索引）
+                st = ocr_service.status(node.path)
+                ocr_status = (st or {}).get("status")
     except Exception as exc:
         # 索引失败不撤销已成功的导入；记录到 index_failures 供诊断与重试
         request.app.state.index_health.record(node.path, "index", str(exc))
 
-    return ImportOut(
+    out = ImportOut(
         path=node.path,
         name=node.name,
         size=node.size,
         parsed_chars=parsed_chars,
     ).model_dump()
+    if ocr_status:
+        out["ocr_status"] = ocr_status
+    return out

@@ -13,6 +13,8 @@ import threading
 import time
 from pathlib import Path
 
+from .path_guard import is_templates_rel
+
 logger = logging.getLogger(__name__)
 
 _SELF_WRITE_WINDOW = 2.0  # 应用内写入后的抑制窗口（秒）
@@ -90,7 +92,16 @@ class VaultWatcher:
             paths[rel] = {"modified": "modified", "added": "added", "deleted": "deleted"}.get(change, "modified")
 
         tree_changed = False
+        templates_changed = False
         for rel, kind in paths.items():
+            if is_templates_rel(rel):
+                # 模板由独立服务维护；外部变化只通知模板面板，绝不进入普通索引/RAG。
+                # 每次都清理升级前或外部工具可能留下的历史派生记录。
+                self.indexer.delete_path(rel)
+                self.rag.delete_path(rel)
+                if now - self._self_writes.get(rel, 0.0) >= _SELF_WRITE_WINDOW:
+                    templates_changed = True
+                continue
             if kind == "deleted":
                 self._handle_deleted(rel)
                 tree_changed = True
@@ -101,6 +112,8 @@ class VaultWatcher:
             if self._handle_upsert(rel):
                 tree_changed = True
 
+        if templates_changed:
+            self.hub.publish({"type": "templates_changed"})
         if tree_changed:
             self.hub.publish({"type": "tree_changed"})
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { AlertTriangle, Bot, Copy, Feather, FileText, LogOut, RefreshCw, Search, StickyNote, Trash2, X } from 'lucide-vue-next'
+import { AlertTriangle, Bot, Copy, Feather, FileText, LayoutTemplate, LogOut, RefreshCw, Search, StickyNote, Trash2, X } from 'lucide-vue-next'
 import { api } from './api'
 import LoginView from './components/LoginView.vue'
 import FileTree from './components/FileTree.vue'
@@ -20,7 +20,8 @@ import IconButton from './components/IconButton.vue'
 import EmptyState from './components/EmptyState.vue'
 import DocumentPreview from './components/DocumentPreview.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
-import { activeTab, openTab, refreshTree, state } from './store'
+import TemplateCenter from './components/TemplateCenter.vue'
+import { activeTab, closePathAndDescendants, openTab, refreshTree, renameOpenTab, state } from './store'
 import { loadWorkspace, saveWorkspace } from './workspace'
 
 const booting = ref(true)
@@ -40,11 +41,26 @@ const rightView = computed(() =>
 const leftOpen = ref(true)
 /** 移动端 sheet：同一时刻只允许一个 */
 const mobileSheet = ref<SheetKind>('none')
+/** 中央区在文稿与模板中心之间切换，不改变已打开标签。 */
+const centerView = ref<'document' | 'templates'>('document')
+const compactRightOpen = ref(false)
 
 const isMobile = ref(window.matchMedia('(max-width: 768px)').matches)
 const mobileMq = window.matchMedia('(max-width: 768px)')
+const isCompact = ref(window.matchMedia('(min-width: 769px) and (max-width: 1179px)').matches)
+const compactMq = window.matchMedia('(min-width: 769px) and (max-width: 1179px)')
 
+interface EditorHandle {
+  flushSave: () => Promise<boolean>
+}
+const editorRef = ref<EditorHandle | null>(null)
 const currentTab = computed(() => activeTab())
+const editingTemplate = computed(() => currentTab.value?.path.startsWith('templates/') ?? false)
+const currentNote = computed(() => {
+  const tab = currentTab.value
+  if (!tab || tab.kind !== 'md' || tab.path.startsWith('templates/')) return null
+  return { path: tab.path, name: tab.name, content: tab.content }
+})
 
 /** 索引失败项（非阻塞警告条） */
 interface HealthFailure {
@@ -94,6 +110,8 @@ async function boot(): Promise<void> {
     if (status.authenticated) {
       await refreshTree()
       await loadHealth()
+      await restoreWorkspace()
+      void connectEvents()
     }
   } catch (e) {
     notify(e as Error)
@@ -132,6 +150,7 @@ async function restoreWorkspace(): Promise<void> {
   if (['marginalia', 'assistant'].includes(ws.rightDomain)) rightDomain.value = ws.rightDomain
   marginaliaView.value = ws.marginaliaView
   assistantView.value = ws.assistantView
+  centerView.value = ws.centerView === 'templates' ? 'templates' : 'document'
   for (const p of ws.expanded) state.expanded.add(p)
   // 恢复活动路径（失效则回退到第一个标签）
   if (ws.activePath && state.tabs.some((t) => t.path === ws.activePath)) {
@@ -149,6 +168,9 @@ function clearWorkspace(): void {
   state.treeChildren.clear()
   state.trash = []
   state.showTrash = false
+  centerView.value = 'document'
+  mobileSheet.value = 'none'
+  compactRightOpen.value = false
 }
 
 function onLogout(): void {
@@ -163,6 +185,12 @@ function onBeforeUnload(e: BeforeUnloadEvent): void {
   if (state.tabs.some((t) => t.saveState !== 'saved')) {
     e.preventDefault()
     e.returnValue = ''
+  }
+}
+
+function onGlobalKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && (mobileSheet.value !== 'none' || compactRightOpen.value)) {
+    closeRightPanels()
   }
 }
 
@@ -195,6 +223,8 @@ let eventsController: AbortController | null = null
 function handleEvent(payload: Record<string, unknown>): void {
   if (payload.type === 'tree_changed') {
     void refreshTree().catch(() => undefined)
+  } else if (payload.type === 'templates_changed') {
+    window.dispatchEvent(new CustomEvent('templates-changed'))
   } else if (payload.type === 'file_changed') {
     const path = String(payload.path ?? '')
     const tab = state.tabs.find((t) => t.path === path)
@@ -254,6 +284,7 @@ function disconnectEvents(): void {
 }
 
 function onMobileOpen(which: 'index' | 'marginalia' | 'assistant'): void {
+  centerView.value = 'document'
   if (which === 'index') {
     mobileSheet.value = 'index'
   } else {
@@ -264,10 +295,82 @@ function onMobileOpen(which: 'index' | 'marginalia' | 'assistant'): void {
 
 function switchDomain(domain: 'marginalia' | 'assistant'): void {
   rightDomain.value = domain
+  centerView.value = 'document'
+  if (isCompact.value) compactRightOpen.value = true
   // 移动端在 sheet 内切换领域时保持 sheet 打开
   if (mobileSheet.value === 'marginalia' || mobileSheet.value === 'assistant') {
     mobileSheet.value = domain
   }
+}
+
+function toggleIndex(): void {
+  if (centerView.value === 'templates') {
+    centerView.value = 'document'
+    leftOpen.value = true
+    return
+  }
+  leftOpen.value = !leftOpen.value
+}
+
+async function openTemplates(): Promise<void> {
+  mobileSheet.value = 'none'
+  compactRightOpen.value = false
+  if (editingTemplate.value) {
+    await returnToTemplates()
+    return
+  }
+  centerView.value = 'templates'
+}
+
+function selectDocument(): void {
+  centerView.value = 'document'
+}
+
+async function onTemplateCreated(path: string): Promise<void> {
+  try {
+    await refreshTree()
+    await openTab(path)
+    centerView.value = 'document'
+  } catch (e) {
+    notify(`文档已创建，但打开失败：${(e as Error).message}`, 'error')
+  }
+}
+
+async function editTemplate(path: string): Promise<void> {
+  try {
+    await openTab(path)
+    centerView.value = 'document'
+  } catch (e) {
+    notify(`模板打开失败：${(e as Error).message}`, 'error')
+  }
+}
+
+function onTemplateMoved(oldPath: string, newPath: string): void {
+  renameOpenTab(oldPath, newPath)
+}
+
+function onTemplateDeleted(path: string): void {
+  closePathAndDescendants(path)
+}
+
+function resetTemplateTabs(): void {
+  closePathAndDescendants('templates')
+}
+
+async function returnToTemplates(): Promise<void> {
+  if (editorRef.value && currentTab.value?.saveState !== 'saved') {
+    const saved = await editorRef.value.flushSave()
+    if (!saved) {
+      notify('模板尚未保存成功，请处理保存错误后再返回模板中心', 'error')
+      return
+    }
+  }
+  centerView.value = 'templates'
+}
+
+function closeRightPanels(): void {
+  mobileSheet.value = 'none'
+  compactRightOpen.value = false
 }
 
 /** 文稿头：点击路径复制 */
@@ -286,10 +389,17 @@ function onMobileMqChange(e: MediaQueryListEvent): void {
   if (!e.matches) mobileSheet.value = 'none'
 }
 
+function onCompactMqChange(e: MediaQueryListEvent): void {
+  isCompact.value = e.matches
+  if (!e.matches) compactRightOpen.value = false
+}
+
 onMounted(() => {
   void boot()
   window.addEventListener('beforeunload', onBeforeUnload)
+  window.addEventListener('keydown', onGlobalKeydown)
   mobileMq.addEventListener('change', onMobileMqChange)
+  compactMq.addEventListener('change', onCompactMqChange)
   // 工作区自动保存（防抖；只存路径元数据，不存未提交正文）
   watch(
     () => [
@@ -300,6 +410,7 @@ onMounted(() => {
       rightDomain.value,
       marginaliaView.value,
       assistantView.value,
+      centerView.value,
       Array.from(state.expanded),
     ],
     () => {
@@ -311,6 +422,7 @@ onMounted(() => {
         rightDomain: rightDomain.value,
         marginaliaView: marginaliaView.value,
         assistantView: assistantView.value,
+        centerView: centerView.value,
         expanded: state.expanded,
       })
     },
@@ -322,7 +434,9 @@ onMounted(() => {
   })
   window.addEventListener('open-note', (e) => {
     const rel = (e as CustomEvent<string>).detail
-    void openTab(rel).catch((err) => notify(err as Error))
+    void openTab(rel)
+      .then(() => { centerView.value = 'document' })
+      .catch((err) => notify(err as Error))
   })
   window.addEventListener('wiki-open', (e) => {
     const { target, anchor, dir } = (e as CustomEvent<{ target: string; anchor: string; dir: string }>).detail
@@ -334,6 +448,7 @@ onMounted(() => {
           return
         }
         return openTab(res.path).then(() => {
+          centerView.value = 'document'
           if (anchor) {
             window.setTimeout(
               () => window.dispatchEvent(new CustomEvent('outline-jump', { detail: anchor })),
@@ -348,7 +463,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', onBeforeUnload)
+  window.removeEventListener('keydown', onGlobalKeydown)
   mobileMq.removeEventListener('change', onMobileMqChange)
+  compactMq.removeEventListener('change', onCompactMqChange)
   disconnectEvents()
 })
 </script>
@@ -359,32 +476,45 @@ onBeforeUnmount(() => {
   <LoginView v-else-if="!state.authenticated" :initialized="state.initialized" @done="onAuthed" />
 
   <div v-else class="app">
-    <AppHeader @notify="notify" />
+    <AppHeader :template-active="centerView === 'templates'" @notify="notify" @select="selectDocument" />
 
-    <div class="main">
+    <div class="main" :class="{ 'main--compact': isCompact, 'main--templates': centerView === 'templates' }">
       <!-- 墨脊：品牌 + 导航（唯一记忆点） -->
       <nav class="spine" aria-label="主导航">
         <span class="spine-brand" title="拾墨 · 收集知识碎片">拾墨</span>
         <button
           class="spine-btn"
-          :class="{ on: leftOpen }"
+          :class="{ on: centerView === 'document' && leftOpen }"
           title="目录索引"
-          @click="leftOpen = !leftOpen"
+          aria-label="目录索引"
+          :aria-expanded="leftOpen"
+          @click="toggleIndex"
         >
           <FileText :size="17" />
         </button>
         <button
           class="spine-btn"
-          :class="{ on: rightDomain === 'marginalia' }"
+          :class="{ on: centerView === 'templates' }"
+          title="模板中心"
+          aria-label="模板中心"
+          @click="openTemplates"
+        >
+          <LayoutTemplate :size="17" />
+        </button>
+        <button
+          class="spine-btn"
+          :class="{ on: centerView === 'document' && rightDomain === 'marginalia' }"
           title="边注"
+          aria-label="边注"
           @click="switchDomain('marginalia')"
         >
           <StickyNote :size="17" />
         </button>
         <button
           class="spine-btn"
-          :class="{ on: rightDomain === 'assistant' }"
+          :class="{ on: centerView === 'document' && rightDomain === 'assistant' }"
           title="助手"
+          aria-label="助手"
           @click="switchDomain('assistant')"
         >
           <Bot :size="17" />
@@ -397,9 +527,12 @@ onBeforeUnmount(() => {
 
       <!-- 目录索引（左侧面板，移动端为左抽屉） -->
       <aside
+        id="workspace-index"
         class="sidebar"
         :class="{ open: mobileSheet === 'index' }"
-        v-show="leftOpen || isMobile"
+        :aria-hidden="isMobile && mobileSheet !== 'index' ? 'true' : undefined"
+        :inert="isMobile && mobileSheet !== 'index' ? true : undefined"
+        v-show="centerView === 'document' && (leftOpen || isMobile)"
       >
         <div class="sidebar-head">
           <span class="sidebar-title">目录索引</span>
@@ -455,46 +588,73 @@ onBeforeUnmount(() => {
 
       <div v-if="mobileSheet === 'index'" class="scrim" @click="closeSheets" />
 
-      <!-- 中央文稿区 -->
-      <section class="content">
+      <!-- 中央区：文稿 / 模板中心 -->
+      <TemplateCenter
+        v-if="centerView === 'templates'"
+        :current-note="currentNote"
+        @notify="notify"
+        @created="onTemplateCreated"
+        @edit="editTemplate"
+        @moved="onTemplateMoved"
+        @deleted="onTemplateDeleted"
+        @reset-template-tabs="resetTemplateTabs"
+      />
+      <section v-else class="content">
         <template v-if="currentTab">
           <div class="doc-header">
+            <span v-if="editingTemplate" class="doc-kind">模板</span>
             <h1 class="doc-title">{{ currentTab.name }}</h1>
             <button class="doc-path" :title="`${currentTab.path}（点击复制）`" @click="copyPath">
               <Copy :size="11" /> {{ currentTab.path }}
             </button>
-            <span v-if="currentTab.kind === 'md'" class="save-state" :class="currentTab.saveState">{{ saveStateLabel }}</span>
+            <button v-if="editingTemplate" class="btn doc-template-back" @click="returnToTemplates">
+              <LayoutTemplate :size="13" /> 返回模板中心
+            </button>
+            <span v-if="currentTab.kind === 'md'" class="save-state" :class="currentTab.saveState" aria-live="polite">{{ saveStateLabel }}</span>
             <span v-else class="save-state saved">只读</span>
           </div>
-          <EditorView v-if="currentTab.kind === 'md'" :key="currentTab.path" :tab-path="currentTab.path" @notify="notify" />
+          <EditorView
+            v-if="currentTab.kind === 'md'"
+            :key="currentTab.path"
+            ref="editorRef"
+            :tab-path="currentTab.path"
+            @notify="notify"
+          />
           <DocumentPreview v-else :key="currentTab.path" :tab-path="currentTab.path" />
         </template>
         <EmptyState v-else>
           <template #icon><Feather :size="28" /></template>
           从左侧选择或新建一篇 Markdown 笔记
+          <template #actions><button class="btn" @click="openTemplates"><LayoutTemplate :size="14" /> 浏览模板</button></template>
         </EmptyState>
       </section>
 
       <!-- 右侧面板：边注 / 助手（移动端为右抽屉） -->
       <aside
+        id="workspace-right"
         class="right-panel"
+        v-show="centerView === 'document'"
+        :aria-hidden="(isMobile && mobileSheet !== 'marginalia' && mobileSheet !== 'assistant') || (isCompact && !compactRightOpen) ? 'true' : undefined"
+        :inert="(isMobile && mobileSheet !== 'marginalia' && mobileSheet !== 'assistant') || (isCompact && !compactRightOpen) ? true : undefined"
         :class="{
-          open: mobileSheet === 'marginalia' || mobileSheet === 'assistant',
+          open: mobileSheet === 'marginalia' || mobileSheet === 'assistant' || compactRightOpen,
+          'right-panel--compact': isCompact,
           'right-panel--full': isMobile && rightDomain === 'marginalia' && marginaliaView === 'graph',
         }"
       >
         <div class="right-head">
+          <IconButton class="right-close" title="关闭" @click="closeRightPanels"><X :size="14" /></IconButton>
           <div class="domain-tabs">
             <button
               class="domain-tab"
-              :class="{ on: rightDomain === 'marginalia' }"
+              :class="{ on: centerView === 'document' && rightDomain === 'marginalia' }"
               @click="switchDomain('marginalia')"
             >
               <StickyNote :size="12" /> 边注
             </button>
             <button
               class="domain-tab"
-              :class="{ on: rightDomain === 'assistant' }"
+              :class="{ on: centerView === 'document' && rightDomain === 'assistant' }"
               @click="switchDomain('assistant')"
             >
               <Bot :size="12" /> 助手
@@ -550,11 +710,23 @@ onBeforeUnmount(() => {
         </div>
       </aside>
 
-      <div v-if="mobileSheet === 'marginalia' || mobileSheet === 'assistant'" class="scrim" @click="closeSheets" />
+      <div
+        v-if="centerView === 'document' && (mobileSheet === 'marginalia' || mobileSheet === 'assistant' || compactRightOpen)"
+        class="scrim"
+        :class="{ 'scrim--compact': compactRightOpen }"
+        @click="closeRightPanels"
+      />
     </div>
 
-    <MobileWorkbenchBar v-if="isMobile" :sheet="mobileSheet" @open="onMobileOpen" @close="closeSheets" />
+    <MobileWorkbenchBar
+      v-if="isMobile"
+      :sheet="mobileSheet"
+      :template-active="centerView === 'templates'"
+      @open="onMobileOpen"
+      @templates="openTemplates"
+      @close="closeSheets"
+    />
 
-    <div v-if="notifyMsg" class="toast" :class="`toast--${notifyKind}`">{{ notifyMsg }}</div>
+    <div v-if="notifyMsg" class="toast" :class="`toast--${notifyKind}`" role="status" aria-live="polite">{{ notifyMsg }}</div>
   </div>
 </template>
