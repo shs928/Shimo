@@ -8,11 +8,13 @@ import {
   FolderOpen,
   FolderPlus,
   Home,
+  Link,
   Pencil,
   Plus,
   Trash2,
   Upload,
 } from 'lucide-vue-next'
+import AppDialog from './AppDialog.vue'
 import { api } from '../api'
 import {
   basename,
@@ -38,8 +40,40 @@ const treeEl = ref<HTMLElement | null>(null)
 const dragging = ref(false)
 /** 拖拽中的文件类型，用于投放提示文案 */
 const dragKind = ref<'image' | 'doc' | 'other'>('other')
+/** 链接导入弹窗 */
+const importUrlOpen = ref(false)
+const importUrlValue = ref('')
+const importUrlBusy = ref(false)
+const importUrlError = ref('')
 
 const IMPORT_ACCEPT = '.pdf,.docx,.txt,.csv,.md'
+
+function openImportUrlDialog(): void {
+  importUrlValue.value = ''
+  importUrlError.value = ''
+  importUrlOpen.value = true
+}
+
+async function submitImportUrl(): Promise<void> {
+  const url = importUrlValue.value.trim()
+  if (!url) {
+    importUrlError.value = '请输入网页链接'
+    return
+  }
+  importUrlBusy.value = true
+  importUrlError.value = ''
+  try {
+    const res = await api.importUrl(url, activeDir.value)
+    importUrlOpen.value = false
+    await refreshTree()
+    await reloadActiveDir()
+    emit('notify', `已导入：${res.title || res.name}`, 'info')
+  } catch (e) {
+    importUrlError.value = (e as Error).message
+  } finally {
+    importUrlBusy.value = false
+  }
+}
 
 /** 扁平化的树行（含深度），供渲染与键盘导航 */
 const flat = computed(() => renderTree(state.root))
@@ -334,6 +368,9 @@ async function remove(path: string): Promise<void> {
       >
         <Upload :size="13" /> 上传
       </button>
+      <button class="btn" title="从网页链接导入（HTML/PDF）" @click="openImportUrlDialog">
+        <Link :size="13" /> 链接
+      </button>
       <input ref="fileInput" type="file" class="hidden-input" :accept="IMPORT_ACCEPT" multiple @change="onFilePicked" />
       <span class="tree-target" :title="`新建/上传目标：${dirLabel()}`">⇣ {{ dirLabel() }}</span>
     </div>
@@ -407,5 +444,35 @@ async function remove(path: string): Promise<void> {
     <div v-if="dragging" class="tree-drop-hint">
       {{ dragKind === 'image' ? '松开以上传图片' : '松开以导入文档' }} → {{ dirLabel() }}
     </div>
+
+    <!-- 链接导入弹窗 -->
+    <AppDialog
+      :open="importUrlOpen"
+      title="从链接导入"
+      :description="`目标目录：${dirLabel()}（HTML 存为 Markdown，PDF 走文档解析）`"
+      :busy="importUrlBusy"
+      @close="importUrlOpen = false"
+    >
+      <form class="dialog-form" @submit.prevent="submitImportUrl">
+        <label>
+          <span>网页链接</span>
+          <input
+            v-model="importUrlValue"
+            type="url"
+            placeholder="https://example.com/article"
+            autocomplete="off"
+            :disabled="importUrlBusy"
+            autofocus
+          />
+        </label>
+        <p v-if="importUrlError" class="field-error" role="alert">{{ importUrlError }}</p>
+      </form>
+      <template #footer>
+        <button class="btn" :disabled="importUrlBusy" @click="importUrlOpen = false">取消</button>
+        <button class="btn btn--primary" :disabled="importUrlBusy" @click="submitImportUrl">
+          {{ importUrlBusy ? '导入中…' : '导入' }}
+        </button>
+      </template>
+    </AppDialog>
   </div>
 </template>

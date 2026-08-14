@@ -19,6 +19,10 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10MB
+_MAX_PAGE_BYTES = 2 * 1024 * 1024  # 网页/PDF 导入 2MB 上限
+
+# 网页导入允许的 Content-Type（正文抽取 / PDF 链接）
+_PAGE_TYPES = ("text/html", "application/xhtml+xml", "application/pdf")
 
 # Pillow 格式 → 扩展名
 _PIL_EXT = {
@@ -107,6 +111,47 @@ def download_image(url: str, max_bytes: int = _MAX_IMAGE_BYTES) -> bytes:
                         raise DownloadError(f"图片超过 {max_bytes // (1024 * 1024)}MB 上限")
                     chunks.append(chunk)
                 return b"".join(chunks)
+            raise DownloadError("重定向次数过多")
+    except DownloadError:
+        raise
+    except httpx.HTTPError as exc:
+        raise DownloadError(f"下载失败：{exc}") from exc
+
+
+def fetch_page(url: str, max_bytes: int = _MAX_PAGE_BYTES) -> tuple[bytes, str, str]:
+    """安全抓取网页/PDF：逐跳 SSRF 校验、Content-Type 白名单、流式限大小。
+
+    返回 (body, final_url, content_type)；与 download_image 同套重定向策略，
+    仅放宽 Content-Type 为 HTML/PDF。
+    """
+    import httpx
+
+    _validate_redirect(url)
+    try:
+        with httpx.Client(follow_redirects=False, timeout=30) as client:
+            current = url
+            for _ in range(5):  # 最多 5 跳
+                resp = client.get(current)
+                if resp.status_code in (301, 302, 303, 307, 308):
+                    location = resp.headers.get("location")
+                    if not location:
+                        raise DownloadError("重定向缺少目标")
+                    current = str(httpx.URL(current).join(location))
+                    _validate_redirect(current)
+                    continue
+                if resp.status_code != 200:
+                    raise DownloadError(f"下载失败：HTTP {resp.status_code}")
+                ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+                if ctype not in _PAGE_TYPES:
+                    raise DownloadError(f"不支持的内容类型：{ctype or '未知'}")
+                chunks: list[bytes] = []
+                total = 0
+                for chunk in resp.iter_bytes(chunk_size=64 * 1024):
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise DownloadError(f"内容超过 {max_bytes // (1024 * 1024)}MB 上限")
+                    chunks.append(chunk)
+                return b"".join(chunks), current, ctype
             raise DownloadError("重定向次数过多")
     except DownloadError:
         raise

@@ -8,12 +8,13 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..deps import csrf_guard, get_indexer, get_vault, require_auth
 from ..services.doc_parser import SUPPORTED_EXT, is_document
 from ..services.indexer import Indexer
 from ..services.path_guard import is_templates_rel, validate_name
+from ..services.url_import import UrlImportError, import_url
 from ..services.vault import Vault, VaultError
 
 router = APIRouter(prefix="/api/v1", tags=["import"], dependencies=[Depends(require_auth)])
@@ -28,6 +29,10 @@ class ImportOut(BaseModel):
     name: str
     size: int
     parsed_chars: int = 0
+
+
+class UrlImportIn(BaseModel):
+    url: str = Field(min_length=1, max_length=2000)
 
 
 def _rag(request: Request):
@@ -92,3 +97,28 @@ async def import_file(
     if ocr_status:
         out["ocr_status"] = ocr_status
     return out
+
+
+@router.post("/import-url", dependencies=_write_deps)
+async def import_from_url(
+    request: Request,
+    body: UrlImportIn,
+    dir: str = Query(default=""),
+    vault: Vault = Depends(get_vault),
+    indexer: Indexer = Depends(get_indexer),
+) -> dict:
+    """从网页链接导入知识库：HTML 存 .md（含 source 溯源），PDF 走文档解析管线。"""
+    url = body.url.strip()
+    if not url:
+        raise UrlImportError("URL 不能为空")
+    watcher = getattr(request.app.state, "watcher", None)
+    return import_url(
+        vault=vault,
+        indexer=indexer,
+        rag=_rag(request),
+        ocr_service=request.app.state.ocr_service,
+        url=url,
+        dir=dir,
+        watcher=watcher,
+        health=request.app.state.index_health,
+    )

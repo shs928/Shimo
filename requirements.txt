@@ -10,6 +10,8 @@ python-docx>=1.1
 keyring>=25,<26
 Pillow>=10.0
 watchfiles>=1.0
+# 网页链接导入：正文抽取为 Markdown（lxml 为传递依赖）
+trafilatura>=1.0,<2
 # 本地 OCR（扫描件识别）：rapidocr 内置模型离线可用；onnxruntime 需 VC++ 2015-2022 运行库
 rapidocr-onnxruntime==1.2.3
 onnxruntime>=1.21,<1.29

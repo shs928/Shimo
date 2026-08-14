@@ -135,6 +135,22 @@ export const api = {
     })
   },
 
+  /** 从网页链接导入知识库（HTML 存 .md 含 source 溯源，PDF 走文档解析），进入 AI 索引 */
+  importUrl: (url: string, dir = '') => {
+    const q = dir ? `?dir=${encodeURIComponent(dir)}` : ''
+    return request<{
+      path: string
+      name: string
+      size: number
+      parsed_chars: number
+      title: string
+      source_url: string
+    }>(`/api/v1/import-url${q}`, {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    })
+  },
+
   fileMeta: (path: string) =>
     request<{
       path: string
