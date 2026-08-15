@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { AlertTriangle, Bot, Copy, Feather, FileText, LayoutTemplate, LogOut, RefreshCw, Search, StickyNote, Trash2, X } from 'lucide-vue-next'
+import { AlertTriangle, Bot, Copy, Feather, FileText, LayoutTemplate, LogOut, Moon, RefreshCw, Search, StickyNote, Sun, Trash2, X } from 'lucide-vue-next'
 import { api } from './api'
+import { currentTheme, toggleTheme, type ThemeName } from './theme'
 import LoginView from './components/LoginView.vue'
 import FileTree from './components/FileTree.vue'
 import EditorView from './components/EditorView.vue'
@@ -27,6 +28,12 @@ import { loadWorkspace, saveWorkspace } from './workspace'
 const booting = ref(true)
 const notifyMsg = ref('')
 const notifyKind = ref<'info' | 'error'>('info')
+const theme = ref<ThemeName>(currentTheme())
+
+function onToggleTheme(): void {
+  toggleTheme()
+  theme.value = currentTheme()
+}
 
 /** 目录索引（文件 / 搜索 / 回收站合并为单一 mode） */
 const indexMode = ref<'files' | 'search' | 'trash'>('files')
@@ -476,10 +483,35 @@ onBeforeUnmount(() => {
   <LoginView v-else-if="!state.authenticated" :initialized="state.initialized" @done="onAuthed" />
 
   <div v-else class="app">
-    <AppHeader :template-active="centerView === 'templates'" @notify="notify" @select="selectDocument" />
+    <AppHeader :template-active="centerView === 'templates'" @notify="notify" @select="selectDocument">
+      <template #toolbar>
+        <div class="toolbar-brand" title="拾墨 · 收集知识碎片">
+          <span class="toolbar-logo"><Feather :size="12" /></span>
+          <span class="toolbar-name">拾墨</span>
+        </div>
+        <div class="toolbar-crumb" v-if="currentTab && centerView === 'document'">
+          <span class="crumb-seg">知识库</span>
+          <span class="crumb-sep">/</span>
+          <span class="crumb-seg crumb-cur">{{ currentTab.name }}</span>
+        </div>
+        <div class="toolbar-crumb" v-else-if="centerView === 'templates'">
+          <span class="crumb-seg">模板中心</span>
+        </div>
+        <div class="toolbar-spacer" />
+        <button
+          class="toolbar-btn"
+          :title="theme === 'midnight' ? '切换到日光主题' : '切换到午夜主题'"
+          :aria-label="theme === 'midnight' ? '切换到日光主题' : '切换到午夜主题'"
+          @click="onToggleTheme"
+        >
+          <Sun v-if="theme === 'midnight'" :size="15" />
+          <Moon v-else :size="15" />
+        </button>
+      </template>
+    </AppHeader>
 
     <div class="main" :class="{ 'main--compact': isCompact, 'main--templates': centerView === 'templates' }">
-      <!-- 墨脊：品牌 + 导航（唯一记忆点） -->
+      <!-- Dock：图标导航（思源式，纸面卡片） -->
       <nav class="spine" aria-label="主导航">
         <span class="spine-brand" title="拾墨 · 收集知识碎片">拾墨</span>
         <button

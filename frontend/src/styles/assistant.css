@@ -155,7 +155,7 @@
 }
 .ai-section {
   border: 1px solid var(--color-rule);
-  border-radius: var(--radius-panel);
+  border-radius: var(--radius-md);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
@@ -307,7 +307,7 @@
 }
 .agent-tool-card {
   border: 1px solid var(--color-rule);
-  border-radius: var(--radius-panel);
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--color-paper);
   font-size: 11.5px;

@@ -13,8 +13,8 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  min-height: 42px;
-  padding: 5px var(--space-3);
+  min-height: 40px;
+  padding: 4px var(--space-3);
   background: var(--color-paper);
   border-bottom: 1px solid var(--color-rule);
   flex-shrink: 0;
@@ -24,7 +24,6 @@
   gap: 1px;
   padding: 2px;
   background: var(--color-raised);
-  border: 1px solid var(--color-rule);
   border-radius: var(--radius-control);
 }
 .seg button {
@@ -34,20 +33,21 @@
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   padding: 3px 10px;
-  border-radius: calc(var(--radius-control) - 2px);
+  border-radius: var(--radius-sm);
   min-height: 26px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  transition: background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease);
 }
 .seg button:hover:not(:disabled) {
-  background: var(--color-hover);
   color: var(--color-text);
 }
 .seg button.on {
-  background: var(--color-accent-soft);
-  border-color: color-mix(in srgb, var(--color-accent) 18%, transparent);
-  color: var(--color-accent-strong);
+  background: var(--color-paper);
+  border-color: var(--color-rule);
+  color: var(--color-text);
+  box-shadow: var(--shadow-control);
 }
 .toolbar-hint {
   color: var(--color-text-faint);
@@ -84,8 +84,8 @@
   padding: 0;
 }
 .fmt-btn:hover:not(:disabled) {
-  background: var(--color-accent-soft);
-  color: var(--color-accent-strong);
+  background: var(--color-hover);
+  color: var(--color-accent);
 }
 .fmt-btn:disabled {
   color: var(--color-text-faint);
@@ -264,13 +264,21 @@
 }
 .preview-inner h1 {
   font-size: 1.8em;
-  border-bottom: 1px solid var(--color-rule);
   padding-bottom: 0.3em;
 }
 .preview-inner h2 {
   font-size: 1.45em;
-  border-bottom: 1px solid var(--color-rule);
-  padding-bottom: 0.25em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.preview-inner h2::before {
+  content: "";
+  width: 4px;
+  height: 0.8em;
+  border-radius: 2px;
+  background: var(--color-accent);
+  flex-shrink: 0;
 }
 .preview-inner h3 {
   font-size: 1.2em;
@@ -292,9 +300,8 @@
 }
 .preview-inner pre {
   background: var(--color-raised);
-  border: 1px solid var(--color-rule);
   padding: 12px 14px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   overflow-x: auto;
   font-size: 13px;
 }

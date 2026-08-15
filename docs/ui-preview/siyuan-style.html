@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-scheme="daylight">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>拾墨 · UI 重构预览（思源风格 · 日光 / 午夜）</title>
+<style>
+/* ============================================================
+   设计令牌 —— 完整取自思源 daylight / midnight 主题
+   daylight: app/appearance/themes/daylight/theme.css
+   midnight: app/appearance/themes/midnight/theme.css
+   ============================================================ */
+:root, :root[data-scheme="daylight"] {
+  --b3-theme-primary: #3575f0;
+  --b3-theme-primary-light: rgba(53, 117, 240, .54);
+  --b3-theme-primary-lighter: rgba(53, 117, 240, .38);
+  --b3-theme-primary-lightest: rgba(53, 117, 240, .12);
+  --b3-theme-secondary: #ff9200;
+  --b3-theme-background: #fff;
+  --b3-theme-background-light: #dfe0e1;
+  --b3-theme-surface: #f6f6f6;
+  --b3-theme-surface-light: rgba(243, 243, 243, .86);
+  --b3-theme-surface-lighter: #e0e0e0;
+  --b3-theme-error: #d23f31;
+  --b3-theme-success: #65b84d;
+  --b3-theme-on-background: #222;
+  --b3-theme-on-surface: #5f6368;
+  --b3-theme-on-surface-light: rgba(95, 99, 104, .68);
+  --b3-theme-on-surface-lighter: #C8CCD6;
+  --b3-body-background: #EBECF0;
+  --b3-layout-space: 4px;
+  --b3-toolbar-color: var(--b3-theme-on-surface-light);
+  --b3-toolbar-hover: rgba(255, 255, 255, .68);
+  --b3-border-color: var(--b3-theme-surface-lighter);
+  --b3-border-radius: 6px;
+  --b3-border-radius-s: 3px;
+  --b3-border-radius-b: 12px;
+  --b3-scroll-color: rgba(0, 0, 0, .2);
+  --b3-list-hover: rgba(0, 0, 0, .075);
+  --b3-dock-shadow-color: rgba(0, 0, 0, .2);
+  --b3-protyle-code-background: rgba(27, 31, 35, .05);
+  --b3-protyle-inline-link-color: #4285f4;
+  --b3-protyle-inline-mark-background: rgb(252, 212, 126);
+  --b3-protyle-inline-mark-color: #202124;
+  --b3-protyle-inline-tag-color: rgba(0, 0, 0, .6);
+  --b3-protyle-inline-blockref-color: #8957e5;
+  --b3-protyle-inline-fileref-color: #21862e;
+  --b3-table-even-background: rgba(0, 0, 0, .04);
+  --b3-tooltips-background: #312f35;
+  --b3-tooltips-color: #dfe0e1;
+  --b3-switch-checked-hover: #d3e3fd;
+  --sy-link: #4285f4;
+  --sy-blockref: #8957e5;
+  --sy-mark-bg: rgb(252, 212, 126);
+  --sy-mark-fg: #202124;
+  --sy-code-plain: #383a42;
+  --sy-code-key: #a626a4;
+  --sy-code-str: #50a14f;
+  --sy-code-fn: #4078f2;
+  --sy-code-num: #b76b01;
+  --sy-code-com: #a0a1a7;
+  --sy-ai-bubble: #f6f6f6;
+}
+:root[data-scheme="midnight"] {
+  --b3-theme-primary: #3575f0;
+  --b3-theme-primary-light: rgba(53, 117, 240, .72);
+  --b3-theme-primary-lighter: rgba(53, 117, 240, .48);
+  --b3-theme-primary-lightest: rgba(53, 117, 240, .24);
+  --b3-theme-secondary: #f3a92f;
+  --b3-theme-background: #1e1e1e;
+  --b3-theme-background-light: rgba(255, 255, 255, .1);
+  --b3-theme-surface: #2c2c2c;
+  --b3-theme-surface-light: rgba(41, 42, 45, .86);
+  --b3-theme-surface-lighter: rgba(230, 230, 230, .1);
+  --b3-theme-error: #d23f31;
+  --b3-theme-success: #65b84d;
+  --b3-theme-on-background: #dadada;
+  --b3-theme-on-surface: #9aa0a6;
+  --b3-theme-on-surface-light: #bababa;
+  --b3-theme-on-surface-lighter: #545454;
+  --b3-body-background: #2e3236;
+  --b3-toolbar-hover: rgba(255, 255, 255, .08);
+  --b3-border-color: #484848;
+  --b3-scroll-color: rgba(230, 230, 230, .2);
+  --b3-list-hover: rgba(255, 255, 255, .10);
+  --b3-dock-shadow-color: rgba(0, 0, 0, .5);
+  --b3-protyle-code-background: rgba(240, 246, 252, .15);
+  --b3-protyle-inline-link-color: #8ab4f8;
+  --b3-protyle-inline-mark-background: #b29100;
+  --b3-protyle-inline-mark-color: var(--b3-theme-on-background);
+  --b3-protyle-inline-tag-color: rgba(255, 255, 255, .55);
+  --b3-protyle-inline-blockref-color: #b388ff;
+  --b3-protyle-inline-fileref-color: var(--b3-theme-secondary);
+  --b3-table-even-background: rgba(255, 255, 255, .06);
+  --b3-tooltips-background: #030303;
+  --b3-tooltips-color: #bababa;
+  --sy-link: #8ab4f8;
+  --sy-blockref: #b388ff;
+  --sy-mark-bg: #b29100;
+  --sy-mark-fg: #dadada;
+  --sy-code-plain: #dcdfe4;
+  --sy-code-key: #c678dd;
+  --sy-code-str: #98c379;
+  --sy-code-fn: #61afef;
+  --sy-code-num: #d19a66;
+  --sy-code-com: #7f848e;
+  --sy-ai-bubble: #2c2c2c;
+}
+
+/* ============ 基础 ============ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: "PingFang SC", "Luxi Sans", "DejaVu Sans", "Helvetica Neue",
+    "Microsoft YaHei", "Hiragino Sans GB", "Source Han Sans SC", sans-serif;
+  font-size: var(--b3-font-size, 14px);
+  color: var(--b3-theme-on-background);
+  background-color: var(--b3-body-background);
+  overflow: hidden;
+  transition: background-color .2s cubic-bezier(0, 0, .2, 1);
+}
+button { font-family: inherit; border: none; background: none; cursor: pointer; color: inherit; }
+svg.ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--b3-scroll-color); border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ============ 预览控制条（非设计本体） ============ */
+.preview-bar {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 999; display: flex; align-items: center; gap: 4px;
+  background: rgba(29, 33, 41, .92); backdrop-filter: blur(8px);
+  border-radius: 999px; padding: 4px; color: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .25);
+  font-size: 12.5px; user-select: none;
+}
+.preview-bar .pv-label { padding: 0 10px 0 12px; color: rgba(255,255,255,.55); letter-spacing: .05em; }
+.preview-bar button {
+  color: rgba(255,255,255,.75); border-radius: 999px; padding: 5px 14px;
+  display: inline-flex; align-items: center; gap: 6px; transition: all .15s;
+}
+.preview-bar button:hover { color: #fff; background: rgba(255,255,255,.1); }
+.preview-bar button.on { background: #fff; color: #1d2129; font-weight: 600; }
+.preview-bar .pv-dot { width: 8px; height: 8px; border-radius: 50%; }
+.preview-bar .pv-dot.day { background: #fff; border: 1px solid #c9cdd4; }
+.preview-bar .pv-dot.night { background: #1e1e1e; border: 1px solid #5c5f66; }
+.preview-hint {
+  position: fixed; right: 12px; bottom: 10px; z-index: 999;
+  font-size: 11px; color: var(--b3-theme-on-surface-light);
+  background: var(--b3-theme-background); border-radius: var(--b3-border-radius);
+  padding: 4px 10px; box-shadow: 0 0 0 1px var(--b3-border-color) inset;
+  opacity: .85;
+}
+
+/* ============ 整体布局：思源式浮动卡片 + 4px 间隙 ============ */
+.layout {
+  height: 100vh; display: flex; flex-direction: column;
+  padding: var(--b3-layout-space) 0;
+}
+.toolbar {
+  height: 32px; line-height: 32px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 4px;
+  padding: 0 8px; margin: 0 var(--b3-layout-space);
+}
+.toolbar__logo {
+  display: flex; align-items: center; gap: 7px; font-weight: 700;
+  color: var(--b3-theme-on-background); padding: 0 8px; user-select: none;
+}
+.toolbar__logo .logo-mark {
+  width: 20px; height: 20px; border-radius: 6px;
+  background: linear-gradient(135deg, #3575f0 0%, #6a9bf5 100%);
+  color: #fff; display: flex; align-items: center; justify-content: center;
+}
+.toolbar__logo .logo-mark svg { width: 12px; height: 12px; }
+.toolbar__crumb {
+  display: flex; align-items: center; gap: 2px; margin-left: 8px;
+  color: var(--b3-theme-on-surface); font-size: 13px; min-width: 0;
+}
+.toolbar__crumb .crumb-sep { opacity: .5; padding: 0 2px; }
+.toolbar__crumb .crumb-cur { color: var(--b3-theme-on-background); }
+.toolbar__spacer { flex: 1; }
+.toolbar__search {
+  width: 210px; height: 22px; border-radius: var(--b3-border-radius);
+  background: var(--b3-theme-background); color: var(--b3-theme-on-surface-light);
+  display: flex; align-items: center; gap: 6px; padding: 0 8px;
+  box-shadow: 0 0 0 1px var(--b3-border-color) inset; font-size: 12px;
+}
+.toolbar__search svg { width: 13px; height: 13px; flex-shrink: 0; }
+.toolbar__search kbd {
+  margin-left: auto; font-size: 10px; font-family: inherit;
+  border: 1px solid var(--b3-border-color); border-radius: 3px;
+  padding: 0 4px; color: var(--b3-theme-on-surface-lighter);
+}
+.tbtn {
+  height: 24px; min-width: 28px; padding: 0 6px; border-radius: var(--b3-border-radius-s);
+  color: var(--b3-toolbar-color); display: inline-flex; align-items: center;
+  justify-content: center; transition: background .15s, color .15s;
+}
+.tbtn:hover { background: var(--b3-toolbar-hover); color: var(--b3-theme-on-background); }
+.tbtn svg { width: 15px; height: 15px; }
+.tbtn--primary { color: var(--b3-theme-primary); }
+.tbtn--active { background: var(--b3-theme-primary-lightest); color: var(--b3-theme-primary); }
+
+.layout__body {
+  flex: 1; display: flex; min-height: 0; padding: 0 var(--b3-layout-space);
+  gap: var(--b3-layout-space);
+}
+
+/* ============ Dock：42px 图标栏（思源签名元素） ============ */
+.dock {
+  width: 42px; flex-shrink: 0; display: flex; flex-direction: column;
+  background: var(--b3-theme-background);
+  border-radius: var(--b3-border-radius-b);
+  box-shadow: 8px 0 24px var(--b3-dock-shadow-color);
+  padding: 4px 0; overflow-y: auto; scrollbar-width: none; user-select: none;
+}
+.dock::-webkit-scrollbar { display: none; }
+.dock__item {
+  padding: 5px; margin: 7px; border-radius: var(--b3-border-radius);
+  color: var(--b3-theme-on-surface-light);
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, color .15s; position: relative;
+}
+.dock__item svg { width: 17.5px; height: 16px; }
+.dock__item:hover { background: var(--b3-toolbar-hover); }
+.dock__item.active { background: var(--b3-toolbar-hover); color: var(--b3-theme-primary); }
+.dock__item.activefocus { background: var(--b3-theme-primary); color: var(--b3-theme-on-primary); }
+.dock__item.activefocus:hover { background: var(--b3-theme-primary); }
+.dock__item::after {
+  content: attr(data-tip); position: absolute; left: calc(100% + 8px); top: 50%;
+  transform: translateY(-50%) scale(.9); opacity: 0; pointer-events: none;
+  background: var(--b3-tooltips-background); color: var(--b3-tooltips-color);
+  font-size: 12px; padding: 4px 8px; border-radius: var(--b3-border-radius-s);
+  white-space: nowrap; transition: all .12s; z-index: 60;
+}
+.dock__item:hover::after { opacity: 1; transform: translateY(-50%) scale(1); }
+.dock__split { height: 17px; position: relative; margin: 4px 0; flex-shrink: 0; }
+.dock__split::after {
+  content: ""; height: 1px; width: 22px; background: var(--b3-theme-on-surface-lighter);
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  border-radius: var(--b3-border-radius);
+}
+.dock__spacer { flex: 1; }
+
+/* ============ 侧面板（文件树 / 边注助手） ============ */
+.panel {
+  background: var(--b3-theme-background);
+  border-radius: var(--b3-border-radius-b);
+  box-shadow: 0 0 24px var(--b3-dock-shadow-color);
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+.panel--left { width: 242px; flex-shrink: 0; }
+.panel--right { width: 300px; flex-shrink: 0; }
+.panel.hide { display: none; }
+
+.panel__head {
+  height: 35px; flex-shrink: 0; display: flex; align-items: center;
+  padding: 0 6px 0 12px; border-bottom: 1px solid var(--b3-theme-background-light);
+  gap: 4px;
+}
+.panel__title {
+  font-size: 12.5px; color: var(--b3-theme-on-surface); flex: 1;
+  display: flex; align-items: center; gap: 6px; user-select: none;
+}
+.panel__title svg { width: 14px; height: 14px; opacity: .7; }
+.seg {
+  display: flex; gap: 2px; padding: 3px; margin: 8px 10px 4px;
+  background: var(--b3-theme-surface);
+  border-radius: var(--b3-border-radius);
+}
+.seg button {
+  flex: 1; font-size: 12px; color: var(--b3-theme-on-surface);
+  padding: 4px 6px; border-radius: var(--b3-border-radius-s);
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  transition: all .15s;
+}
+.seg button svg { width: 12px; height: 12px; }
+.seg button:hover { color: var(--b3-theme-on-background); }
+.seg button.on {
+  background: var(--b3-theme-background); color: var(--b3-theme-on-background);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .12); font-weight: 500;
+}
+.panel__body { flex: 1; overflow-y: auto; min-height: 0; padding: 4px 6px 10px; }
+
+/* ============ 文件树 ============ */
+.tree-row {
+  display: flex; align-items: center; gap: 4px; height: 28px;
+  padding: 0 6px; border-radius: var(--b3-border-radius);
+  font-size: 13px; color: var(--b3-theme-on-background);
+  cursor: pointer; user-select: none; white-space: nowrap;
+  transition: background .12s; position: relative;
+}
+.tree-row:hover { background: var(--b3-list-hover); }
+.tree-row.active { background: var(--b3-theme-primary-lightest); }
+.tree-row .tw {
+  width: 16px; height: 16px; flex-shrink: 0; display: flex;
+  align-items: center; justify-content: center;
+  color: var(--b3-theme-on-surface-lighter); transition: transform .15s;
+}
+.tree-row .tw svg { width: 12px; height: 12px; }
+.tree-row.open .tw { transform: rotate(90deg); }
+.tree-row .tf {
+  width: 16px; height: 16px; flex-shrink: 0; display: flex;
+  align-items: center; justify-content: center; color: var(--b3-theme-primary);
+}
+.tree-row .tf svg { width: 14px; height: 14px; }
+.tree-row .tf.dim { color: var(--b3-theme-on-surface-light); }
+.tree-row .tname {
+  overflow: hidden; text-overflow: ellipsis; flex: 1;
+}
+.tree-row .tactions { display: none; gap: 2px; }
+.tree-row:hover .tactions { display: flex; }
+.tree-row .tactions .tbtn { height: 20px; min-width: 20px; }
+.tree-row .tactions .tbtn svg { width: 12px; height: 12px; }
+.tree-children { display: none; }
+.tree-children.show { display: block; }
+
+/* 大纲 / 反链 / AI 面板内容 */
+.outline-row {
+  display: flex; align-items: center; gap: 6px; height: 26px;
+  padding: 0 8px; margin: 1px 0; border-radius: var(--b3-border-radius-s);
+  font-size: 12.5px; color: var(--b3-theme-on-surface); cursor: pointer;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.outline-row:hover { background: var(--b3-list-hover); color: var(--b3-theme-on-background); }
+.outline-row.lvl-1 { font-weight: 600; color: var(--b3-theme-on-background); }
+.outline-row.lvl-2 { padding-left: 20px; }
+.outline-row.lvl-3 { padding-left: 32px; }
+.outline-row svg { width: 12px; height: 12px; flex-shrink: 0; opacity: .6; }
+
+.ref-card {
+  margin: 6px 4px; border-radius: var(--b3-border-radius);
+  box-shadow: 0 0 0 1px var(--b3-border-color) inset;
+  padding: 8px 10px; cursor: pointer; transition: box-shadow .15s;
+}
+.ref-card:hover { box-shadow: 0 0 0 1px var(--b3-theme-primary-lighter) inset; }
+.ref-card__path {
+  font-size: 12px; color: var(--sy-blockref); display: flex;
+  align-items: center; gap: 4px; margin-bottom: 4px; font-weight: 500;
+}
+.ref-card__path svg { width: 12px; height: 12px; }
+.ref-card__excerpt {
+  font-size: 12px; color: var(--b3-theme-on-surface); line-height: 1.6;
+  border-left: 2px solid var(--b3-theme-surface-lighter); padding-left: 8px;
+}
+.ref-card__excerpt mark {
+  background: var(--b3-protyle-inline-mark-background); color: var(--b3-protyle-inline-mark-color);
+  border-radius: 2px; padding: 0 1px;
+}
+
+/* AI 聊天 */
+.ai-msg { display: flex; gap: 8px; margin: 10px 4px; }
+.ai-msg .ava {
+  width: 26px; height: 26px; border-radius: var(--b3-border-radius-b); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.ai-msg.user { flex-direction: row-reverse; }
+.ai-msg.user .ava { background: var(--b3-theme-primary); color: #fff; }
+.ai-msg.bot .ava { background: var(--b3-theme-primary-lightest); color: var(--b3-theme-primary); }
+.ai-msg .ava svg { width: 14px; height: 14px; }
+.ai-msg .bubble {
+  max-width: 82%; padding: 8px 12px; font-size: 13px; line-height: 1.65;
+  border-radius: var(--b3-border-radius);
+}
+.ai-msg.user .bubble {
+  background: var(--b3-theme-primary); color: #fff;
+  border-top-right-radius: var(--b3-border-radius-s);
+}
+.ai-msg.bot .bubble {
+  background: var(--sy-ai-bubble); box-shadow: 0 0 0 1px var(--b3-border-color) inset;
+  border-top-left-radius: var(--b3-border-radius-s);
+}
+.ai-sources { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.ai-src {
+  font-size: 11px; color: var(--b3-theme-on-surface);
+  background: var(--b3-theme-surface); border-radius: 999px; padding: 2px 9px;
+  display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+  transition: all .15s;
+}
+.ai-src:hover { color: var(--b3-theme-primary); background: var(--b3-theme-primary-lightest); }
+.ai-src svg { width: 10px; height: 10px; }
+.ai-input {
+  margin: auto 8px 8px; display: flex; align-items: center; gap: 4px;
+  background: var(--sy-ai-bubble); border-radius: var(--b3-border-radius-b);
+  box-shadow: 0 0 0 1px var(--b3-border-color) inset; padding: 4px 6px 4px 12px;
+  transition: box-shadow .15s;
+}
+.ai-input:focus-within { box-shadow: 0 0 0 1px var(--b3-theme-primary-lighter) inset; }
+.ai-input input {
+  flex: 1; border: none; background: none; outline: none; font: inherit;
+  font-size: 13px; color: var(--b3-theme-on-background); height: 28px;
+}
+.ai-input input::placeholder { color: var(--b3-theme-on-surface-lighter); }
+.ai-send {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--b3-theme-primary); color: #fff;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.ai-send svg { width: 13px; height: 13px; }
+.ai-send:hover { background: #2861c9; }
+
+/* ============ 中央编辑区 ============ */
+.center {
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  background: var(--b3-theme-background);
+  border-radius: var(--b3-border-radius-b);
+  box-shadow: 0 0 24px var(--b3-dock-shadow-color);
+  overflow: hidden;
+}
+.layout-tab-bar {
+  display: flex; align-items: center; flex-shrink: 0; overflow-x: auto;
+  background: var(--b3-theme-background);
+  border-bottom: 1px solid var(--b3-theme-background-light);
+  padding: 0 4px; scrollbar-width: none;
+}
+.layout-tab-bar::-webkit-scrollbar { display: none; }
+.layout-tab-bar .item {
+  line-height: 22px; cursor: pointer; user-select: none; display: flex;
+  align-items: center; min-height: 29px; position: relative; max-width: 186px;
+  flex-shrink: 0; overflow: hidden; color: var(--b3-theme-on-surface);
+  margin: 6px 4px; border-radius: var(--b3-border-radius);
+  padding-right: 4px; gap: 2px; transition: all .15s;
+}
+.layout-tab-bar .item:hover:not(.item--focus) {
+  background: var(--b3-theme-surface); color: var(--b3-theme-on-background);
+}
+.layout-tab-bar .item--focus {
+  background-color: var(--b3-theme-primary-lightest);
+  box-shadow: 0 0 0 1px var(--b3-theme-primary-lighter) inset;
+  color: var(--b3-theme-on-background);
+}
+.layout-tab-bar .item__icon {
+  width: 16px; height: 16px; flex-shrink: 0; margin-left: 8px;
+  color: var(--b3-theme-primary); display: flex; align-items: center;
+}
+.layout-tab-bar .item__icon svg { width: 13px; height: 13px; }
+.layout-tab-bar .item__text {
+  padding: 0 6px; white-space: nowrap; font-size: 13px;
+  overflow: hidden; text-overflow: ellipsis; max-width: 150px;
+  -webkit-mask-image: linear-gradient(to left, rgba(0, 0, 0, 0) 0, #000 12px);
+}
+.layout-tab-bar .item__close {
+  padding: 4px; display: flex; align-items: center; border-radius: var(--b3-border-radius-s);
+  opacity: 0; transition: opacity .15s; color: var(--b3-theme-on-surface);
+}
+.layout-tab-bar .item:hover .item__close,
+.layout-tab-bar .item--focus .item__close { opacity: .68; }
+.layout-tab-bar .item__close:hover { background: var(--b3-list-hover); opacity: 1; }
+.layout-tab-bar .item__close svg { width: 12px; height: 12px; }
+.layout-tab-bar .item--dirty .item__icon { color: var(--b3-theme-on-surface-light); position: relative; }
+.layout-tab-bar .item--dirty .item__icon::after {
+  content: ""; position: absolute; right: -2px; top: -2px; width: 5px; height: 5px;
+  border-radius: 50%; background: var(--b3-theme-primary);
+}
+.layout-tab-bar .bar-action {
+  margin-left: auto; display: flex; align-items: center; gap: 2px; padding-right: 6px;
+}
+
+/* 文稿头 */
+.doc-head {
+  display: flex; align-items: center; gap: 8px; padding: 10px 24px 0;
+  flex-shrink: 0;
+}
+.doc-head__path {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px;
+  color: var(--b3-theme-on-surface-light); cursor: pointer; padding: 2px 6px;
+  border-radius: var(--b3-border-radius-s); margin-left: -6px;
+  transition: all .15s;
+}
+.doc-head__path:hover { background: var(--b3-list-hover); color: var(--b3-theme-on-surface); }
+.doc-head__path svg { width: 11px; height: 11px; }
+.doc-head__spacer { flex: 1; }
+.mode-seg { display: flex; gap: 1px; background: var(--b3-theme-surface); border-radius: var(--b3-border-radius); padding: 2px; }
+.mode-seg button {
+  font-size: 12px; padding: 3px 10px; border-radius: var(--b3-border-radius-s);
+  color: var(--b3-theme-on-surface); display: inline-flex; align-items: center; gap: 4px;
+}
+.mode-seg button svg { width: 12px; height: 12px; }
+.mode-seg button.on { background: var(--b3-theme-background); color: var(--b3-theme-on-background); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.save-dot {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px;
+  color: var(--b3-theme-on-surface-light); padding: 0 2px;
+}
+.save-dot::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--b3-theme-success); }
+
+/* ============ 正文排版（思源 protyle 气质） ============ */
+.protyle { flex: 1; overflow-y: auto; min-height: 0; }
+.protyle__wysiwyg {
+  max-width: 742px; margin: 0 auto; padding: 20px 32px 96px;
+  font-size: 15.5px; line-height: 1.75; color: var(--b3-theme-on-background);
+}
+.protyle__wysiwyg h1 { font-size: 26px; font-weight: 700; margin: 18px 0 12px; letter-spacing: -.01em; }
+.protyle__wysiwyg h2 {
+  font-size: 20px; font-weight: 600; margin: 28px 0 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.protyle__wysiwyg h2::before {
+  content: ""; width: 4px; height: 17px; border-radius: 2px;
+  background: var(--b3-theme-primary); flex-shrink: 0;
+}
+.protyle__wysiwyg h3 { font-size: 16.5px; font-weight: 600; margin: 20px 0 8px; }
+.protyle__wysiwyg p { margin: 8px 0; }
+.protyle__wysiwyg a { color: var(--sy-link); text-decoration: none; cursor: pointer; }
+.protyle__wysiwyg a:hover { text-decoration: underline; }
+.protyle__wysiwyg .blockref {
+  color: var(--sy-blockref); border-bottom: 1px dashed var(--sy-blockref);
+  cursor: pointer; padding-bottom: 1px;
+}
+.protyle__wysiwyg mark {
+  background: var(--sy-mark-bg); color: var(--sy-mark-fg);
+  padding: 0 3px; border-radius: 2px;
+}
+.protyle__wysiwyg .tag {
+  color: var(--b3-protyle-inline-tag-color); background: var(--b3-theme-surface);
+  border-radius: 999px; padding: 1px 8px; font-size: 12.5px;
+  box-shadow: 0 0 0 1px var(--b3-border-color) inset; cursor: pointer;
+}
+.protyle__wysiwyg blockquote {
+  border-left: 4px solid var(--b3-theme-primary-lighter);
+  padding: 4px 16px; margin: 10px 0; color: var(--b3-theme-on-surface);
+}
+.protyle__wysiwyg blockquote p { margin: 4px 0; }
+.protyle__wysiwyg ul, .protyle__wysiwyg ol { padding-left: 26px; margin: 8px 0; }
+.protyle__wysiwyg li { margin: 3px 0; }
+.protyle__wysiwyg .task-list { list-style: none; padding-left: 6px; }
+.protyle__wysiwyg .task-list li { display: flex; align-items: flex-start; gap: 8px; }
+.protyle__wysiwyg .task-list .ck {
+  width: 15px; height: 15px; margin-top: 5px; flex-shrink: 0;
+  border: 1.5px solid var(--b3-theme-on-surface-lighter); border-radius: 4px;
+  display: flex; align-items: center; justify-content: center; color: #fff;
+}
+.protyle__wysiwyg .task-list .ck.on { background: var(--b3-theme-primary); border-color: var(--b3-theme-primary); }
+.protyle__wysiwyg .task-list .ck svg { width: 10px; height: 10px; stroke-width: 3; }
+.protyle__wysiwyg .task-list .done { color: var(--b3-theme-on-surface-light); text-decoration: line-through; }
+
+/* 代码块：思源式语言条 + 圆角底色 */
+.code-block {
+  margin: 12px 0; border-radius: var(--b3-border-radius);
+  background: var(--b3-protyle-code-background); overflow: hidden;
+}
+.code-block__head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 5px 12px 0; font-size: 11px; color: var(--b3-theme-on-surface-light);
+  font-family: var(--sy-font-code, monospace);
+}
+.code-block__head .cb-lang { display: flex; align-items: center; gap: 5px; }
+.code-block__head .cb-lang svg { width: 12px; height: 12px; }
+.code-block pre {
+  padding: 10px 16px 14px; overflow-x: auto; font-family: "JetBrains Mono",
+    "Cascadia Code", Consolas, "Liberation Mono", monospace;
+  font-size: 12.5px; line-height: 1.7; tab-size: 2;
+}
+.code-block .c-key { color: var(--sy-code-key); }
+.code-block .c-str { color: var(--sy-code-str); }
+.code-block .c-fn { color: var(--sy-code-fn); }
+.code-block .c-num { color: var(--sy-code-num); }
+.code-block .c-com { color: var(--sy-code-com); font-style: italic; }
+.code-block .c-plain { color: var(--sy-code-plain); }
+
+/* 表格 */
+.protyle__wysiwyg table {
+  border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13.5px;
+}
+.protyle__wysiwyg th, .protyle__wysiwyg td {
+  border: 1px solid var(--b3-border-color); padding: 7px 12px; text-align: left;
+}
+.protyle__wysiwyg th { background: var(--b3-theme-surface); font-weight: 600; }
+.protyle__wysiwyg tr:nth-child(even) td { background: var(--b3-table-even-background); }
+
+/* callout */
+.callout {
+  display: flex; gap: 10px; margin: 12px 0; padding: 10px 14px;
+  border-radius: var(--b3-border-radius); font-size: 14px; line-height: 1.65;
+  background: var(--b3-theme-primary-lightest);
+}
+.callout svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--b3-theme-primary); margin-top: 3px; }
+.callout.info { background: #d6eaf9; color: #005599; }
+:root[data-scheme="midnight"] .callout.info { background: #28405c; color: rgb(166, 213, 250); }
+.callout.tip { background: #d7eed8; color: #006b04; }
+:root[data-scheme="midnight"] .callout.tip { background: #425347; color: rgb(183, 223, 185); }
+.callout svg { color: inherit; }
+
+/* 底部 dock（状态栏） */
+.dockb {
+  height: 40px; flex-shrink: 0; margin: var(--b3-layout-space) var(--b3-layout-space) 0;
+  background: var(--b3-theme-background);
+  border-radius: var(--b3-border-radius-b);
+  box-shadow: 0 -8px 24px var(--b3-dock-shadow-color);
+  display: flex; align-items: center; padding: 0 6px; gap: 2px;
+}
+.dockb .dock__item { margin: 4px 5px; padding: 4px; }
+.dockb .dock__item svg { width: 16px; height: 15px; }
+.dockb__status {
+  margin-left: auto; display: flex; align-items: center; gap: 14px;
+  padding: 0 12px; font-size: 11.5px; color: var(--b3-theme-on-surface-light);
+  white-space: nowrap;
+}
+.dockb__status .st-item { display: inline-flex; align-items: center; gap: 5px; }
+.dockb__status .st-item svg { width: 12px; height: 12px; }
+.dockb__status .st-ok { color: var(--b3-theme-success); }
+
+/* 主题切换过渡 */
+.center, .panel, .dock, .dockb, .toolbar { transition: background-color .2s, box-shadow .2s; }
+
+@media (max-width: 980px) {
+  .panel--right { display: none; }
+  .toolbar__search { width: 140px; }
+}
+</style>
+</head>
+<body>
+
+<!-- 预览控制（不属于设计本体） -->
+<div class="preview-bar" role="radiogroup" aria-label="方案切换">
+  <span class="pv-label">拾墨 · 思源风格重构</span>
+  <button id="pv-day" class="on" onclick="setScheme('daylight')"><span class="pv-dot day"></span>方案 A · 日光</button>
+  <button id="pv-night" onclick="setScheme('midnight')"><span class="pv-dot night"></span>方案 B · 午夜</button>
+</div>
+<div class="preview-hint">A / B 切换主题 · 仅供预览，未接入真实数据</div>
+
+<div class="layout">
+  <!-- 顶部工具栏 32px -->
+  <div class="toolbar">
+    <div class="toolbar__logo">
+      <span class="logo-mark"><i data-icon="feather"></i></span>
+      <span>拾墨</span>
+    </div>
+    <div class="toolbar__crumb">
+      <span>知识库</span><span class="crumb-sep">/</span>
+      <span class="crumb-cur">读书笔记</span><span class="crumb-sep">/</span>
+      <span class="crumb-cur">卡片盒笔记法</span>
+    </div>
+    <div class="toolbar__spacer"></div>
+    <div class="toolbar__search">
+      <i data-icon="search"></i>
+      <span>搜索知识库…</span>
+      <kbd>Ctrl K</kbd>
+    </div>
+    <button class="tbtn tbtn--primary" title="AI 问答"><i data-icon="sparkles"></i></button>
+    <button class="tbtn" title="同步"><i data-icon="refresh-cw"></i></button>
+    <button class="tbtn" title="设置"><i data-icon="settings"></i></button>
+  </div>
+
+  <div class="layout__body">
+    <!-- 左侧 Dock -->
+    <nav class="dock" aria-label="侧边导航">
+      <button class="dock__item active" data-tip="目录索引" data-panel="left"><i data-icon="file-text"></i></button>
+      <button class="dock__item" data-tip="模板中心"><i data-icon="layout-template"></i></button>
+      <button class="dock__item" data-tip="回收站"><i data-icon="trash-2"></i></button>
+      <div class="dock__split"></div>
+      <button class="dock__item active" data-tip="边注 · 大纲 / 反链" data-panel="right"><i data-icon="sticky-note"></i></button>
+      <button class="dock__item" data-tip="AI 助手" data-panel="right"><i data-icon="bot"></i></button>
+      <div class="dock__spacer"></div>
+      <button class="dock__item" data-tip="退出登录"><i data-icon="log-out"></i></button>
+    </nav>
+
+    <!-- 左面板：目录索引 -->
+    <aside class="panel panel--left" id="panel-left">
+      <div class="panel__head">
+        <span class="panel__title"><i data-icon="panel-left"></i>目录索引</span>
+        <button class="tbtn" title="新建笔记"><i data-icon="file-plus"></i></button>
+        <button class="tbtn" title="新建文件夹"><i data-icon="folder-plus"></i></button>
+      </div>
+      <div class="seg" role="tablist">
+        <button class="on" data-seg="files"><i data-icon="file"></i>文件</button>
+        <button data-seg="search"><i data-icon="search"></i>搜索</button>
+        <button data-seg="trash"><i data-icon="trash-2"></i>回收站</button>
+      </div>
+      <div class="panel__body">
+        <div class="tree-row open" onclick="toggleFolder(this)">
+          <span class="tw"><i data-icon="chevron-right"></i></span>
+          <span class="tf"><i data-icon="folder-open"></i></span>
+          <span class="tname">读书笔记</span>
+        </div>
+        <div class="tree-children show">
+          <div class="tree-row active" style="padding-left:24px">
+            <span class="tw"></span>
+            <span class="tf"><i data-icon="file-text"></i></span>
+            <span class="tname">卡片盒笔记法</span>
+            <span class="tactions"><button class="tbtn"><i data-icon="ellipsis"></i></button></span>
+          </div>
+          <div class="tree-row" style="padding-left:24px">
+            <span class="tw"></span>
+            <span class="tf"><i data-icon="file-text"></i></span>
+            <span class="tname">渐进式总结</span>
+          </div>
+          <div class="tree-row" style="padding-left:24px">
+            <span class="tw"></span>
+            <span class="tf dim"><i data-icon="image"></i></span>
+            <span class="tname">思维导图.png</span>
+          </div>
+        </div>
+        <div class="tree-row open" onclick="toggleFolder(this)">
+          <span class="tw"><i data-icon="chevron-right"></i></span>
+          <span class="tf"><i data-icon="folder-open"></i></span>
+          <span class="tname">技术碎片</span>
+        </div>
+        <div class="tree-children show">
+          <div class="tree-row" style="padding-left:24px">
+            <span class="tw"></span>
+            <span class="tf"><i data-icon="file-text"></i></span>
+            <span class="tname">Vue 响应式原理</span>
+          </div>
+          <div class="tree-row open" onclick="toggleFolder(this)" style="padding-left:24px">
+            <span class="tw"><i data-icon="chevron-right"></i></span>
+            <span class="tf"><i data-icon="folder-open"></i></span>
+            <span class="tname">Python</span>
+          </div>
+          <div class="tree-children show">
+            <div class="tree-row" style="padding-left:42px">
+              <span class="tw"></span>
+              <span class="tf"><i data-icon="file-text"></i></span>
+              <span class="tname">类型标注实践</span>
+            </div>
+          </div>
+        </div>
+        <div class="tree-row" onclick="toggleFolder(this)">
+          <span class="tw"><i data-icon="chevron-right"></i></span>
+          <span class="tf"><i data-icon="folder"></i></span>
+          <span class="tname">日记</span>
+        </div>
+        <div class="tree-row">
+          <span class="tw"></span>
+          <span class="tf"><i data-icon="file-text"></i></span>
+          <span class="tname">碎片收集箱.md</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 中央编辑区 -->
+    <main class="center">
+      <div class="layout-tab-bar" role="tablist">
+        <div class="item item--focus" role="tab" onclick="switchTab(this)">
+          <span class="item__icon"><i data-icon="file-text"></i></span>
+          <span class="item__text">卡片盒笔记法</span>
+          <span class="item__close"><i data-icon="x"></i></span>
+        </div>
+        <div class="item item--dirty" role="tab" onclick="switchTab(this)">
+          <span class="item__icon"><i data-icon="file-text"></i></span>
+          <span class="item__text">渐进式总结</span>
+          <span class="item__close"><i data-icon="x"></i></span>
+        </div>
+        <div class="bar-action">
+          <button class="tbtn" title="分屏"><i data-icon="columns-2"></i></button>
+          <button class="tbtn" title="更多"><i data-icon="ellipsis"></i></button>
+        </div>
+      </div>
+
+      <div class="doc-head">
+        <button class="doc-head__path" title="点击复制路径">
+          <i data-icon="copy"></i>读书笔记 / 卡片盒笔记法.md
+        </button>
+        <div class="doc-head__spacer"></div>
+        <span class="save-dot">已保存 · 刚刚</span>
+        <div class="mode-seg">
+          <button><i data-icon="pencil"></i>编辑</button>
+          <button class="on"><i data-icon="eye"></i>阅读</button>
+          <button><i data-icon="columns-2"></i>分屏</button>
+        </div>
+      </div>
+
+      <div class="protyle">
+        <article class="protyle__wysiwyg" id="doc-1">
+          <h1>卡片盒笔记法（Zettelkasten）</h1>
+          <p>
+            卡片盒笔记法的核心不是"收藏"，而是<span class="blockref">用固定格式改写</span>：
+            把读到的内容用自己的话重述成一张原子化卡片，再通过链接让它与既有卡片对话。
+            <mark>笔记的价值在连接，不在数量。</mark>
+          </p>
+          <div class="callout info">
+            <i data-icon="sparkles"></i>
+            <div>本文是「读书笔记」专题的第一篇，配套实践见 <span class="blockref">渐进式总结</span>；标签索引在 <a href="#">#方法论</a> 下。</div>
+          </div>
+
+          <h2>三条基本原则</h2>
+          <ul class="task-list">
+            <li><span class="ck on"><i data-icon="chevron-right"></i></span><span>原子化：一张卡片只讲一件事，标题即结论</span></li>
+            <li><span class="ck on"><i data-icon="chevron-right"></i></span><span>自述化：必须用自己的话改写，禁止摘抄式收藏</span></li>
+            <li><span class="ck"><i data-icon="chevron-right"></i></span><span class="done">连接化：每张新卡至少与一张旧卡建立链接</span></li>
+          </ul>
+
+          <h2>卡片的固定格式</h2>
+          <p>我目前的模板如下，配合拾墨的<span class="tag">模板中心</span>一键创建：</p>
+          <div class="code-block">
+            <div class="code-block__head">
+              <span class="cb-lang"><i data-icon="type"></i>markdown</span>
+              <span>2026-08-14 · 32 行</span>
+            </div>
+<pre><span class="c-key"># 一句话结论（标题即卡面）</span>
+
+<span class="c-com">---</span>
+<span class="c-key">来源</span>：《卡片笔记写作法》 P<span class="c-num">42</span>
+<span class="c-key">标签</span>：#方法论 #读书笔记
+<span class="c-com">---</span>
+
+<span class="c-plain">用自己的话重述的内容，</span><span class="c-num">1-3</span><span class="c-plain"> 句。</span>
+
+<span class="c-com">&lt;!-- 反向链接 --&gt;</span>
+<span class="c-key">相关</span>：[[渐进式总结]] · [[卢曼的工作流]]</pre>
+          </div>
+
+          <blockquote>
+            <p>卢曼一生写了 9 万张卡片，产出了 70 本书。他的秘密不是勤奋，而是让卡片盒替他"思考"——写作只是从卡片盒里"抽出"已经长好的观点。</p>
+          </blockquote>
+
+          <h2>与其它方法的对比</h2>
+          <table>
+            <thead>
+              <tr><th>方法</th><th>组织单位</th><th>连接方式</th><th>适合场景</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>卡片盒</td><td>原子卡片</td><td>双向链接</td><td>长期写作 / 研究</td></tr>
+              <tr><td>渐进式总结</td><td>文章摘录</td><td>层级压缩</td><td>内容消费 / 检索</td></tr>
+              <tr><td>常青笔记</td><td>概念</td><td>命名引用</td><td>概念澄清 / 思辨</td></tr>
+            </tbody>
+          </table>
+
+          <h2>下一步</h2>
+          <p>
+            把"碎片收集箱"里的内容按每周 10 张的节奏整理成卡片，整理时优先补齐
+            <a href="#">反向链接</a>，而不是新增卡片。相关讨论见
+            <span class="blockref">日记/2026-08-09 复盘</span>。
+          </p>
+          <p><span class="tag">#方法论</span> <span class="tag">#读书笔记</span> <span class="tag">#卡片盒</span></p>
+        </article>
+      </div>
+    </main>
+
+    <!-- 右面板：边注 / 助手 -->
+    <aside class="panel panel--right" id="panel-right">
+      <div class="panel__head">
+        <span class="panel__title"><i data-icon="sticky-note"></i>边注</span>
+        <button class="tbtn" title="切换为 AI 助手" onclick="toggleRightDomain()"><i data-icon="bot"></i></button>
+      </div>
+      <div class="seg">
+        <button class="on"><i data-icon="list"></i>大纲</button>
+        <button><i data-icon="link-2"></i>反链 3</button>
+        <button><i data-icon="corner-down-right"></i>出链 5</button>
+        <button><i data-icon="clock"></i>历史</button>
+      </div>
+      <div class="panel__body" id="right-marginalia">
+        <div class="outline-row lvl-1"><i data-icon="heading"></i>卡片盒笔记法（Zettelkasten）</div>
+        <div class="outline-row lvl-2"><i data-icon="heading"></i>三条基本原则</div>
+        <div class="outline-row lvl-2"><i data-icon="heading"></i>卡片的固定格式</div>
+        <div class="outline-row lvl-2"><i data-icon="heading"></i>与其它方法的对比</div>
+        <div class="outline-row lvl-3"><i data-icon="heading"></i>表格：方法对比</div>
+        <div class="outline-row lvl-2"><i data-icon="heading"></i>下一步</div>
+
+        <div style="height:1px;background:var(--b3-border-color);margin:12px 6px;"></div>
+
+        <div class="outline-row lvl-1" style="color:var(--sy-blockref)"><i data-icon="link-2"></i>反向链接 · 3</div>
+        <div class="ref-card">
+          <div class="ref-card__path"><i data-icon="file-text"></i>渐进式总结</div>
+          <div class="ref-card__excerpt">改写时参考了<mark>卡片盒笔记法</mark>的原子化原则：一条摘录只压缩一个观点……</div>
+        </div>
+        <div class="ref-card">
+          <div class="ref-card__path"><i data-icon="file-text"></i>碎片收集箱</div>
+          <div class="ref-card__excerpt">待整理：卢曼 9 万张卡片的<mark>卡片盒</mark>工作流访谈（附播客链接）</div>
+        </div>
+      </div>
+      <div class="panel__body" id="right-assistant" style="display:none; flex-direction:column; padding:0;">
+        <div style="flex:1; overflow-y:auto; padding:4px 2px;">
+          <div class="ai-msg user">
+            <span class="ava"><i data-icon="feather"></i></span>
+            <div class="bubble">用一句话总结这篇笔记的方法论，并告诉我如何开始第一步？</div>
+          </div>
+          <div class="ai-msg bot">
+            <span class="ava"><i data-icon="bot"></i></span>
+            <div class="bubble">
+              卡片盒笔记法 = <b>原子化改写 + 双向链接</b>：不收藏原文，而是用自己的话写成单点卡片，并与旧卡建立连接，让想法在卡片间"长"出来。<br>
+              第一步：从「碎片收集箱」挑 1 条，用文中的 markdown 模板改写成卡片。
+              <div class="ai-sources">
+                <span class="ai-src"><i data-icon="file-text"></i>卡片盒笔记法</span>
+                <span class="ai-src"><i data-icon="file-text"></i>渐进式总结</span>
+                <span class="ai-src"><i data-icon="hash"></i>#方法论</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="ai-input">
+          <input placeholder="围绕当前笔记提问…" />
+          <button class="ai-send" title="发送"><i data-icon="send"></i></button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 底部 dock：状态栏 -->
+  <div class="dockb">
+    <button class="dock__item active" data-tip="全局关系图"><i data-icon="git-branch"></i></button>
+    <button class="dock__item" data-tip="标签面板"><i data-icon="hash"></i></button>
+    <button class="dock__item" data-tip="模板中心"><i data-icon="layout-template"></i></button>
+    <div class="dockb__status">
+      <span class="st-item st-ok"><i data-icon="circle"></i>已保存</span>
+      <span class="st-item"><i data-icon="type"></i>1,204 字</span>
+      <span class="st-item"><i data-icon="file-text"></i>2,317 篇已索引</span>
+      <span class="st-item"><i data-icon="refresh-cw"></i>刚刚同步</span>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- lucide 图标（与项目同款，路径取自 lucide-vue-next） ---------- */
+const ICONS = {
+  "feather": ["M12.67 19a2 2 0 0 0 1.416-.588l6.154-6.172a6 6 0 0 0-8.49-8.49L5.586 9.914A2 2 0 0 0 5 11.328V18a1 1 0 0 0 1 1z","M16 8 2 22","M17.5 15H9"],
+  "search": ["m21 21-4.34-4.34","M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0z"],
+  "sparkles": ["M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z","M20 2v4","M22 4h-4"],
+  "refresh-cw": ["M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8","M21 3v5h-5","M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16","M8 16H3v5"],
+  "settings": ["M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915","M12 12m-3 0a3 3 0 1 0 6 0 3 3 0 1 0-6 0"],
+  "file-text": ["M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z","M14 2v5a1 1 0 0 0 1 1h5","M10 9H8","M16 13H8","M16 17H8"],
+  "layout-template": ["M4 3h16a1 1 0 0 1 1 1v5a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-5a1 1 0 0 1 1 -1z","M4 14h7a1 1 0 0 1 1 1v5a1 1 0 0 1 -1 1h-7a1 1 0 0 1 -1 -1v-5a1 1 0 0 1 1 -1z","M17 14h3a1 1 0 0 1 1 1v5a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-5a1 1 0 0 1 1 -1z"],
+  "trash-2": ["M10 11v6","M14 11v6","M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6","M3 6h18","M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"],
+  "sticky-note": ["M21 9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z","M15 3v5a1 1 0 0 0 1 1h5"],
+  "bot": ["M12 8V4H8","M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0z","M12 12m-9 0a1 1 0 1 0 2 0 1 1 0 1 0-2 0","M19 12m-1 0a1 1 0 1 0 2 0 1 1 0 1 0-2 0","M15 13v2","M9 13v2"],
+  "log-out": ["m16 17 5-5-5-5","M21 12H9","M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"],
+  "panel-left": ["M9 3v18","M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"],
+  "file-plus": ["M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z","M14 2v5a1 1 0 0 0 1 1h5","M9 15h6","M12 18v-6"],
+  "folder-plus": ["M12 10v6","M9 13h6","M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"],
+  "folder": ["M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"],
+  "folder-open": ["m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"],
+  "file": ["M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z","M14 2v5a1 1 0 0 0 1 1h5"],
+  "image": ["M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7","m16 3 5 5","M16 3v4a1 1 0 0 0 1 1h4","m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"],
+  "chevron-right": ["m9 18 6-6-6-6"],
+  "x": ["M18 6 6 18","m6 6 12 12"],
+  "ellipsis": ["M13 12a1 1 0 1 0-2 0 1 1 0 0 0 2 0z","M19 12a1 1 0 1 0-2 0 1 1 0 0 0 2 0z","M7 12a1 1 0 1 0-2 0 1 1 0 0 0 2 0z"],
+  "columns-2": ["M12 3v18","M18 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2z"],
+  "copy": ["M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2","M20 8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z"],
+  "pencil": ["M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z","m15 5 4 4"],
+  "eye": ["M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0","M12 12m-3 0a3 3 0 1 0 6 0 3 3 0 1 0-6 0"],
+  "type": ["M12 4v16","M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2","M9 20h6"],
+  "heading": ["M6 12h12","M6 20V4","M18 20V4"],
+  "list": ["M3 5h.01","M3 12h.01","M3 19h.01","M8 5h13","M8 12h13","M8 19h13"],
+  "link-2": ["M9 17H7A5 5 0 0 1 7 7h2","M15 7h2a5 5 0 1 1 0 10h-2"],
+  "corner-down-right": ["m15 10 5 5-5 5","M4 4v7a4 4 0 0 0 4 4h12"],
+  "clock": ["M12 2a10 10 0 1 0 10 10 10 10 0 0 0-10-10z","M12 6v6l4 2"],
+  "hash": ["M4 9h16","M4 15h16","M10 3 8 21","M16 3l-2 18"],
+  "git-branch": ["M6 3v12","M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z","M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z","M18 9a9 9 0 0 1-9 9"],
+  "send": ["M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z","m21.854 2.147-10.94 10.939"],
+  "circle": ["M12 12m-9 0a9 9 0 1 0 18 0 9 9 0 1 0-18 0"],
+};
+function renderIcons() {
+  document.querySelectorAll("i[data-icon]").forEach((el) => {
+    const name = el.getAttribute("data-icon");
+    const paths = ICONS[name] || [];
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("class", "ic");
+    paths.forEach((d) => {
+      const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("d", d);
+      svg.appendChild(p);
+    });
+    el.replaceWith(svg);
+  });
+}
+
+/* ---------- 交互 ---------- */
+function setScheme(scheme) {
+  document.documentElement.setAttribute("data-scheme", scheme);
+  document.getElementById("pv-day").classList.toggle("on", scheme === "daylight");
+  document.getElementById("pv-night").classList.toggle("on", scheme === "midnight");
+}
+function toggleFolder(row) {
+  row.classList.toggle("open");
+  const next = row.nextElementSibling;
+  if (next && next.classList.contains("tree-children")) next.classList.toggle("show");
+}
+function switchTab(item) {
+  document.querySelectorAll(".layout-tab-bar .item").forEach((t) => t.classList.remove("item--focus"));
+  item.classList.add("item--focus");
+}
+function toggleRightDomain() {
+  const m = document.getElementById("right-marginalia");
+  const a = document.getElementById("right-assistant");
+  const isAi = a.style.display !== "none";
+  a.style.display = isAi ? "none" : "flex";
+  m.style.display = isAi ? "block" : "none";
+  const title = document.querySelector("#panel-right .panel__title");
+  title.innerHTML = isAi
+    ? '<svg viewBox="0 0 24 24" class="ic"><path d="M21 9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/></svg>边注'
+    : '<svg viewBox="0 0 24 24" class="ic"><path d="M12 8V4H8"/><path d="M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"/></svg>AI 助手';
+}
+document.querySelectorAll(".seg button").forEach((b) => {
+  b.addEventListener("click", () => {
+    b.parentElement.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+    b.classList.add("on");
+  });
+});
+document.querySelectorAll(".dock__item[data-panel]").forEach((b) => {
+  b.addEventListener("click", () => {
+    const panel = document.getElementById("panel-" + b.dataset.panel);
+    const wasHidden = panel.classList.contains("hide");
+    panel.classList.toggle("hide");
+    b.classList.toggle("active", wasHidden);
+  });
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "a" || e.key === "A") setScheme("daylight");
+  if (e.key === "b" || e.key === "B") setScheme("midnight");
+});
+renderIcons();
+</script>
+</body>
+</html>

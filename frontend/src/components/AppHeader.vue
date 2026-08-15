@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { LayoutTemplate, List, X } from 'lucide-vue-next'
+import { FileText, LayoutTemplate, List, X } from 'lucide-vue-next'
 import { closeTab, state } from '../store'
 import type { Tab } from '../store'
 import IconButton from './IconButton.vue'
@@ -59,7 +59,12 @@ function onTabKeydown(e: KeyboardEvent, path: string): void {
 
 <template>
   <header class="topbar">
-    <!-- 桌面：标签页 -->
+    <!-- 工具栏区（品牌 / 面包屑 / 全局动作，由 App 注入） -->
+    <div class="toolbar">
+      <slot name="toolbar" />
+    </div>
+
+    <!-- 桌面：标签页（思源药丸式） -->
     <div class="tabs" role="tablist" aria-label="打开的笔记">
       <div
         v-for="tab in state.tabs"
@@ -73,8 +78,11 @@ function onTabKeydown(e: KeyboardEvent, path: string): void {
         @click="switchTab(tab.path)"
         @keydown="onTabKeydown($event, tab.path)"
       >
-        {{ tab.name }}
-        <span v-if="tab.saveState !== 'saved'" class="tab-dot" :class="dotClass(tab)" />
+        <span class="tab-icon">
+          <FileText :size="13" />
+          <span v-if="tab.saveState !== 'saved'" class="tab-dot" :class="dotClass(tab)" />
+        </span>
+        <span class="tab-text">{{ tab.name }}</span>
         <span
           class="tab-close"
           role="button"

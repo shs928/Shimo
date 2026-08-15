@@ -1,54 +1,59 @@
 /* ============================================================
-   拾墨 · 中性书案 — 设计令牌
-   中性浅灰外壳 / 纯白纸面 / 可访问绿色强调 / 深灰绿墨脊
+   拾墨 · 思源风格 — 设计令牌
+   色板取自 SiYuan daylight / midnight 主题（CC BY-4.1 原值映射）：
+   app/appearance/themes/{daylight,midnight}/theme.css
+   布局 DNA：灰画布 + 白纸浮动卡片 + 4px 间隙 + 12px 圆角。
    组件样式一律引用语义 token（--color-*），避免硬编码主题颜色。
+   主题切换由 data-theme 属性驱动（theme.ts 解析系统偏好）。
    ============================================================ */
 
-:root {
-  /* —— 中性外壳与纸面 —— */
-  --ink-surface: #f4f6f4;
-  --ink-paper: #ffffff;
-  --ink-raised: #f7f8f7;
-  --ink-hover: #f0f3f1;
-  --ink-rule: #e0e5e1;
-  --ink-rule-strong: #cbd3cd;
-  --ink-scrim: rgba(24, 34, 27, 0.38);
+:root,
+:root[data-theme='daylight'] {
+  /* —— 画布与纸面（思源 daylight） —— */
+  --ink-surface: #ebecf0; /* 画布 b3-body-background */
+  --ink-paper: #ffffff; /* 纸面 b3-theme-background */
+  --ink-raised: #f6f6f6; /* 浮层 b3-theme-surface */
+  --ink-hover: rgba(0, 0, 0, 0.075); /* 列表悬停 b3-list-hover */
+  --ink-rule: #e0e0e0; /* 分隔线 b3-theme-surface-lighter */
+  --ink-rule-strong: #c8ccd6; /* 强分隔线 b3-theme-on-surface-lighter */
+  --ink-scrim: rgba(220, 220, 220, 0.4); /* 遮罩 b3-mask-background */
 
   /* —— 普通文字 —— */
-  --ink-main: #202923;
-  --ink-dim: #59655d;
-  --ink-faint: #69746c;
+  --ink-main: #222; /* b3-theme-on-background */
+  --ink-dim: #5f6368; /* b3-theme-on-surface */
+  --ink-faint: rgba(95, 99, 104, 0.68); /* b3-theme-on-surface-light */
 
-  /* —— 绿色强调 —— */
-  --ink-accent: #2f7d4a;
-  --ink-accent-strong: #25663c;
-  --ink-accent-soft: #eaf5ed;
-  --ink-accent-glow: rgba(47, 125, 74, 0.28);
-  --ink-accent-solid: #2f7d4a;
-  --ink-accent-solid-hover: #25663c;
+  /* —— 蓝色主色（思源签名 #3575f0） —— */
+  --ink-accent: #3575f0;
+  --ink-accent-strong: #2861c9;
+  --ink-accent-soft: rgba(53, 117, 240, 0.12); /* primary-lightest */
+  --ink-accent-glow: rgba(53, 117, 240, 0.38); /* primary-lighter */
+  --ink-accent-solid: #3575f0;
+  --ink-accent-solid-hover: #2861c9;
 
-  /* —— 状态色 —— */
-  --ink-success: #2f7d4a;
-  --ink-success-strong: #25663c;
-  --ink-success-soft: #eaf5ed;
-  --ink-warning: #946200;
-  --ink-warning-strong: #744d00;
-  --ink-warning-soft: #fff4d6;
-  --ink-info: #2563a6;
-  --ink-info-strong: #1c4f86;
-  --ink-info-soft: #eaf2fb;
-  --ink-info-solid: #1c4f86;
-  --ink-danger: #b43a3a;
-  --ink-danger-strong: #922f2f;
-  --ink-danger-soft: #fcecec;
-  --ink-danger-solid: #b43a3a;
-  --ink-danger-solid-hover: #922f2f;
+  /* —— 状态色（思源卡片配色对） —— */
+  --ink-success: #006b04;
+  --ink-success-strong: #004a03;
+  --ink-success-soft: #d7eed8;
+  --ink-warning: #8a4f00;
+  --ink-warning-strong: #6b3c00;
+  --ink-warning-soft: #ffe8c8;
+  --ink-info: #005599;
+  --ink-info-strong: #00427a;
+  --ink-info-soft: #d6eaf9;
+  --ink-info-solid: #005599;
+  --ink-danger: #a93226;
+  --ink-danger-strong: #7c2015;
+  --ink-danger-soft: #f5d1cf;
+  --ink-danger-solid: #d23f31; /* b3-theme-error */
+  --ink-danger-solid-hover: #b32d20;
 
-  /* —— 墨脊（唯一深色品牌记忆点） —— */
-  --ink-spine: #26332c;
-  --ink-spine-text: #c8d2cb;
-  --ink-spine-accent: #a7d7b4;
-  --ink-spine-hover: #34453b;
+  /* —— Dock（思源 dock 同纸面底色，不再深色） —— */
+  --ink-spine: var(--ink-paper);
+  --ink-spine-text: var(--ink-dim);
+  --ink-spine-accent: var(--ink-accent);
+  --ink-spine-hover: rgba(255, 255, 255, 0.68); /* b3-toolbar-hover */
+  --ink-tooltip-bg: #312f35; /* b3-tooltips-background */
 
   /* —— 颜色语义 token —— */
   --color-bg: var(--ink-surface);
@@ -83,19 +88,19 @@
   --color-danger-solid: var(--ink-danger-solid);
   --color-danger-solid-hover: var(--ink-danger-solid-hover);
   --color-on-solid: #ffffff;
-  --color-selection: rgba(47, 125, 74, 0.16);
+  --color-selection: rgba(53, 117, 240, 0.16);
   --color-spine: var(--ink-spine);
   --color-spine-text: var(--ink-spine-text);
   --color-spine-accent: var(--ink-spine-accent);
   --color-spine-hover: var(--ink-spine-hover);
 
   /* —— 字体角色（无 CDN，系统字体回退栈） —— */
-  --font-ui: system-ui, -apple-system, "Segoe UI", "PingFang SC",
-    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-ui: BlinkMacSystemFont, Helvetica, "PingFang SC", "Segoe UI",
+    "Microsoft YaHei", "Hiragino Sans GB", "Source Han Sans SC", sans-serif;
   --font-serif: "Noto Serif SC", "Songti SC", "STSong", "SimSun", "宋体",
     Georgia, serif;
   --font-kai: "Kaiti SC", "STKaiti", "KaiTi", "楷体", "AR PL UKai CN", serif;
-  --font-mono: "Cascadia Code", "JetBrains Mono", "SF Mono", Consolas,
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, "Liberation Mono",
     "Courier New", monospace;
 
   /* —— 字号与字重 —— */
@@ -111,87 +116,95 @@
   --weight-semibold: 600;
   --weight-bold: 700;
 
-  /* —— 间距与形状 —— */
+  /* —— 间距与形状（思源 6 / 12 圆角体系） —— */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
-  --radius-control: 5px;
-  --radius-panel: 8px;
+  --radius-control: 6px; /* b3-border-radius */
+  --radius-panel: 12px; /* b3-border-radius-b */
   --radius-overlay: 12px;
-  --radius-sm: var(--radius-control);
+  --radius-card: 12px; /* 浮动卡片 */
+  --radius-sm: calc(var(--radius-control) - 2px); /* b3-border-radius-s */
+  --radius-panel: var(--radius-card); /* 兼容旧引用 */
   --radius-md: var(--radius-panel);
   --radius-lg: var(--radius-overlay);
   --control-h: 32px;
   --touch-min: 44px;
 
-  /* —— 阴影：普通面板无阴影，仅控件和浮层使用 —— */
-  --shadow-control: 0 1px 2px rgba(24, 34, 27, 0.08);
-  --shadow-overlay: 0 12px 32px rgba(24, 34, 27, 0.16);
+  /* —— 阴影：卡片浮起 + 控件微投影（思源 dock 阴影） —— */
+  --shadow-card: 0 0 24px rgba(0, 0, 0, 0.2);
+  --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.2); /* b3-dialog-shadow */
 
   /* —— 版心 / 栏宽 —— */
-  --width-spine: 52px;
-  --width-sidebar: 272px;
-  --width-right: 316px;
+  --width-spine: 42px; /* 思源 dock 宽度 */
+  --width-sidebar: 268px;
+  --width-right: 312px;
   --width-read: 70ch;
   --width-edit: 86ch;
 
-  /* —— 动效 / 层级 —— */
+  /* —— 动效 / 层级（思源缓动） —— */
+  --layout-gap: 4px; /* b3-layout-space */
   --motion-fast: 120ms;
   --motion-base: 200ms;
-  --ease: cubic-bezier(0.2, 0.6, 0.3, 1);
+  --ease: cubic-bezier(0, 0, 0.2, 1);
   --z-scrim: 25;
   --z-sheet: 30;
   --z-menu: 50;
   --z-toast: 90;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink-surface: #151a16;
-    --ink-paper: #1c221d;
-    --ink-raised: #232a24;
-    --ink-hover: #293129;
-    --ink-rule: #343d36;
-    --ink-rule-strong: #465148;
-    --ink-scrim: rgba(5, 9, 6, 0.58);
+/* ============================================================
+   午夜主题（思源 midnight 原值）
+   ============================================================ */
 
-    --ink-main: #edf2ee;
-    --ink-dim: #b3bdb5;
-    --ink-faint: #8d998f;
+:root[data-theme='midnight'] {
+  --ink-surface: #2e3236; /* b3-body-background */
+  --ink-paper: #1e1e1e; /* b3-theme-background */
+  --ink-raised: #2c2c2c; /* b3-theme-surface */
+  --ink-hover: rgba(255, 255, 255, 0.1); /* b3-list-hover */
+  --ink-rule: #484848; /* b3-border-color */
+  --ink-rule-strong: #5a5a5a;
+  --ink-scrim: rgba(10, 10, 10, 0.4);
 
-    --ink-accent: #79c88d;
-    --ink-accent-strong: #96d9a6;
-    --ink-accent-soft: #223b29;
-    --ink-accent-glow: rgba(121, 200, 141, 0.34);
-    --ink-accent-solid: #2f7d4a;
-    --ink-accent-solid-hover: #25663c;
+  --ink-main: #dadada; /* b3-theme-on-background */
+  --ink-dim: #9aa0a6; /* b3-theme-on-surface */
+  --ink-faint: rgba(154, 160, 166, 0.72);
 
-    --ink-success: #79c88d;
-    --ink-success-strong: #96d9a6;
-    --ink-success-soft: #223b29;
-    --ink-warning: #efc162;
-    --ink-warning-strong: #f7d58d;
-    --ink-warning-soft: #3d321c;
-    --ink-info: #86baf0;
-    --ink-info-strong: #a8cef5;
-    --ink-info-soft: #203449;
-    --ink-info-solid: #275f98;
-    --ink-danger: #f18a8a;
-    --ink-danger-strong: #ffaaaa;
-    --ink-danger-soft: #432727;
-    --ink-danger-solid: #a93737;
-    --ink-danger-solid-hover: #8d2d2d;
+  --ink-accent: #8ab4f8; /* 深色下提亮的主色文字 */
+  --ink-accent-strong: #a8c7fa;
+  --ink-accent-soft: rgba(53, 117, 240, 0.24); /* primary-lightest */
+  --ink-accent-glow: rgba(53, 117, 240, 0.48); /* primary-lighter */
+  --ink-accent-solid: #3575f0;
+  --ink-accent-solid-hover: #5088f2;
 
-    --ink-spine: #1e2922;
-    --ink-spine-text: #bac7bd;
-    --ink-spine-accent: #8fc99e;
-    --ink-spine-hover: #2d3d32;
+  --ink-success: rgb(183, 223, 185);
+  --ink-success-strong: rgb(205, 232, 207);
+  --ink-success-soft: #425347;
+  --ink-warning: rgb(255, 213, 153);
+  --ink-warning-strong: #ffe3b8;
+  --ink-warning-soft: #554636;
+  --ink-info: rgb(166, 213, 250);
+  --ink-info-strong: rgb(190, 224, 251);
+  --ink-info-soft: #28405c;
+  --ink-info-solid: #275f98;
+  --ink-danger: rgb(243, 153, 147);
+  --ink-danger-strong: #ffb0aa;
+  --ink-danger-soft: #442724;
+  --ink-danger-solid: #a93226;
+  --ink-danger-solid-hover: #c0392b;
 
-    --color-on-solid: #ffffff;
-    --color-selection: rgba(121, 200, 141, 0.22);
-    --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.28);
-    --shadow-overlay: 0 14px 36px rgba(0, 0, 0, 0.42);
-  }
+  --ink-spine: var(--ink-paper);
+  --ink-spine-text: var(--ink-dim);
+  --ink-spine-accent: var(--ink-accent);
+  --ink-spine-hover: rgba(255, 255, 255, 0.08);
+  --ink-tooltip-bg: #030303;
+
+  --color-on-solid: #ffffff;
+  --color-selection: rgba(53, 117, 240, 0.34);
+  --shadow-card: 0 0 24px rgba(0, 0, 0, 0.5);
+  --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.12);
 }

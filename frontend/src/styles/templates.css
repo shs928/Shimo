@@ -85,7 +85,7 @@
   padding: 12px;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
-  border-radius: var(--radius-panel, var(--radius-md));
+  border-radius: var(--radius-panel, 12px);
 }
 
 .template-search {
@@ -174,7 +174,7 @@
   text-align: left;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
-  border-radius: var(--radius-panel, var(--radius-md));
+  border-radius: var(--radius-panel, 12px);
   color: var(--color-text);
   transition: border-color var(--motion-fast) var(--ease),
     background var(--motion-fast) var(--ease), box-shadow var(--motion-fast) var(--ease);
@@ -258,7 +258,7 @@
 .template-empty {
   min-height: 360px;
   border: 1px dashed var(--color-rule);
-  border-radius: var(--radius-panel, var(--radius-md));
+  border-radius: var(--radius-panel, 12px);
   background: var(--color-paper);
 }
 
@@ -324,7 +324,7 @@
   padding: 16px;
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
-  border-radius: var(--radius-panel, var(--radius-md));
+  border-radius: var(--radius-panel, 12px);
 }
 
 .template-facts h2 {
@@ -371,7 +371,7 @@
   min-height: 540px;
   max-height: none;
   border: 1px solid var(--color-rule);
-  border-radius: var(--radius-panel, var(--radius-md));
+  border-radius: var(--radius-panel, 12px);
   overflow: visible;
 }
 

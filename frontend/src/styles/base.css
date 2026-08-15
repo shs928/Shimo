@@ -14,8 +14,11 @@ body,
 }
 
 html {
-  color-scheme: light dark;
+  color-scheme: light;
   -webkit-text-size-adjust: 100%;
+}
+html[data-theme='midnight'] {
+  color-scheme: dark;
 }
 
 body {

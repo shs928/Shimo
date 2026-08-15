@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { renderAfter, renderMarkdown } from '../md'
 
 const props = withDefaults(defineProps<{ content: string; currentPath?: string }>(), {
@@ -19,7 +19,19 @@ async function render(): Promise<void> {
 }
 
 watch(() => [props.content, props.currentPath], () => void render())
-onMounted(() => void render())
+onMounted(() => {
+  void render()
+  // 主题切换后 mermaid 等需要按新配色重绘
+  window.addEventListener('shimo-theme-changed', onThemeChanged)
+})
+onBeforeUnmount(() => {
+  renderVersion++
+  window.removeEventListener('shimo-theme-changed', onThemeChanged)
+})
+
+function onThemeChanged(): void {
+  void render()
+}
 </script>
 
 <template>

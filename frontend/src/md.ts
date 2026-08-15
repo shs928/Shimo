@@ -180,9 +180,9 @@ export async function renderAfter(root: HTMLElement): Promise<void> {
   }
 }
 
-/** 当前是否为深色主题（prefers-color-scheme） */
+/** 当前是否为深色主题（data-theme，见 theme.ts） */
 export function isDarkTheme(): boolean {
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
+  return document.documentElement.dataset.theme === 'midnight'
 }
 
 /** 相对路径（assets/...、图片等）解析为可访问 URL */
