@@ -197,6 +197,14 @@
   background: var(--color-accent-soft);
   color: var(--color-accent);
 }
+.template-card-icon > svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: var(--icon-stroke);
+}
+.template-card:hover .template-card-icon > svg {
+  stroke-width: var(--icon-stroke-strong);
+}
 
 .template-card-main {
   min-width: 0;
@@ -558,6 +566,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.directory-current > svg,
+.directory-row > svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  flex-shrink: 0;
+  stroke-width: var(--icon-stroke);
+}
 
 .directory-tree {
   max-height: 260px;
@@ -616,6 +631,11 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-faint);
+}
+.directory-toggle > svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+  stroke-width: var(--icon-stroke);
 }
 
 .category-manager {

@@ -133,6 +133,15 @@
   --control-h: 32px;
   --touch-min: 44px;
 
+  /* —— 图标体系：避免小尺寸 Lucide 默认描边发糊 —— */
+  --icon-xs: 12px;
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 18px;
+  --icon-xl: 24px;
+  --icon-stroke: 1.75;
+  --icon-stroke-strong: 2;
+
   /* —— 阴影：卡片浮起 + 控件微投影（思源 dock 阴影） —— */
   --shadow-card: 0 0 24px rgba(0, 0, 0, 0.2);
   --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.12);

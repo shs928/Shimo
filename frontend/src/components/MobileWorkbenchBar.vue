@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { Bot, BookOpen, LayoutTemplate, StickyNote } from 'lucide-vue-next'
+import { Bot, Files, LayoutTemplate, StickyNote } from 'lucide-vue-next'
 
 export type SheetKind = 'none' | 'index' | 'marginalia' | 'assistant'
 
@@ -39,7 +39,7 @@ watch(
       aria-controls="workspace-index"
       @click="trigger(($event.currentTarget as HTMLButtonElement), 'index')"
     >
-      <BookOpen :size="18" />
+      <Files :size="18" />
       <span>目录</span>
     </button>
     <button class="mw-btn" :class="{ on: templateActive }" @click="emit('templates')">

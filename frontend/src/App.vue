@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { AlertTriangle, Bot, Copy, Feather, FileText, LayoutTemplate, LogOut, Moon, RefreshCw, Search, StickyNote, Sun, Trash2, X } from 'lucide-vue-next'
+import { AlertTriangle, Bot, Copy, Feather, Files, FileText, LayoutTemplate, LogOut, Moon, RefreshCw, Search, StickyNote, Sun, Trash2, X } from 'lucide-vue-next'
 import { api } from './api'
 import { currentTheme, toggleTheme, type ThemeName } from './theme'
 import LoginView from './components/LoginView.vue'
@@ -522,7 +522,7 @@ onBeforeUnmount(() => {
           :aria-expanded="leftOpen"
           @click="toggleIndex"
         >
-          <FileText :size="17" />
+          <Files :size="16" />
         </button>
         <button
           class="spine-btn"
@@ -531,7 +531,7 @@ onBeforeUnmount(() => {
           aria-label="模板中心"
           @click="openTemplates"
         >
-          <LayoutTemplate :size="17" />
+          <LayoutTemplate :size="16" />
         </button>
         <button
           class="spine-btn"
@@ -540,7 +540,7 @@ onBeforeUnmount(() => {
           aria-label="边注"
           @click="switchDomain('marginalia')"
         >
-          <StickyNote :size="17" />
+          <StickyNote :size="16" />
         </button>
         <button
           class="spine-btn"
@@ -549,7 +549,7 @@ onBeforeUnmount(() => {
           aria-label="助手"
           @click="switchDomain('assistant')"
         >
-          <Bot :size="17" />
+          <Bot :size="16" />
         </button>
         <div class="spine-spacer" />
         <button class="spine-btn" title="退出登录" @click="onLogout">
@@ -576,7 +576,7 @@ onBeforeUnmount(() => {
             :class="{ on: indexMode === 'files' }"
             @click="indexMode = 'files'"
           >
-            <FileText :size="12" /> 文件
+            <Files :size="12" /> 文件
           </button>
           <button
             class="index-tab"

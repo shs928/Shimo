@@ -243,11 +243,19 @@
     font-size: 10px;
     min-height: 48px;
   }
+  .mw-btn > svg {
+    width: var(--icon-lg);
+    height: var(--icon-lg);
+    stroke-width: var(--icon-stroke);
+  }
   .mw-btn:hover {
     color: var(--color-text);
   }
   .mw-btn.on {
     color: var(--color-accent);
+  }
+  .mw-btn.on > svg {
+    stroke-width: var(--icon-stroke-strong);
   }
 
   .app {

@@ -57,6 +57,23 @@ button {
   cursor: pointer;
 }
 
+/* Lucide 统一光学规则：线性图标在小尺寸下保持清晰、轻盈 */
+button > svg,
+.icon-btn > svg,
+.tree-icon > svg,
+.tree-caret > svg,
+.panel-header > svg,
+.panel-header-actions > svg {
+  display: block;
+  flex: 0 0 auto;
+  stroke-width: var(--icon-stroke);
+}
+
+.btn > svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+
 button:disabled,
 input:disabled,
 select:disabled,
@@ -209,6 +226,14 @@ textarea {
 }
 .icon-btn--accent {
   color: var(--color-accent);
+}
+.icon-btn > svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+.icon-btn--small > svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
 }
 
 /* —— 通用小工具 —— */

@@ -1,20 +1,23 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
+  ArrowDown,
+  ArrowRight,
   ChevronDown,
   ChevronRight,
+  FilePlus2,
   FileText,
   Folder,
   FolderOpen,
   FolderPlus,
   Home,
-  Link,
+  Link2,
   Pencil,
-  Plus,
   Trash2,
   Upload,
 } from 'lucide-vue-next'
 import AppDialog from './AppDialog.vue'
+import IconButton from './IconButton.vue'
 import { api } from '../api'
 import {
   basename,
@@ -355,7 +358,7 @@ async function remove(path: string): Promise<void> {
     <!-- 新建 / 上传目标目录 -->
     <div class="tree-createbar">
       <button class="btn" title="新建笔记" @click="creating = creating === 'file' ? null : 'file'">
-        <Plus :size="13" /> 笔记
+        <FilePlus2 :size="14" /> 笔记
       </button>
       <button class="btn" title="新建文件夹" @click="creating = creating === 'dir' ? null : 'dir'">
         <FolderPlus :size="13" /> 文件夹
@@ -366,13 +369,16 @@ async function remove(path: string): Promise<void> {
         :disabled="uploading"
         @click="fileInput?.click()"
       >
-        <Upload :size="13" /> 上传
+        <Upload :size="14" /> 上传
       </button>
       <button class="btn" title="从网页链接导入（HTML/PDF）" @click="openImportUrlDialog">
-        <Link :size="13" /> 链接
+        <Link2 :size="14" /> 链接
       </button>
       <input ref="fileInput" type="file" class="hidden-input" :accept="IMPORT_ACCEPT" multiple @change="onFilePicked" />
-      <span class="tree-target" :title="`新建/上传目标：${dirLabel()}`">⇣ {{ dirLabel() }}</span>
+      <span class="tree-target" :title="`新建/上传目标：${dirLabel()}`">
+        <ArrowDown :size="12" />
+        <span>{{ dirLabel() }}</span>
+      </span>
     </div>
 
     <div v-if="creating" class="create-row">
@@ -416,12 +422,12 @@ async function remove(path: string): Promise<void> {
           </span>
           <span class="tree-dir">{{ row.node.name }}</span>
           <span class="tree-ops">
-            <button class="icon-btn" title="重命名" @click.stop="rename(row.node.path, row.node.name)">
+            <IconButton title="重命名" kind="accent" @click.stop="rename(row.node.path, row.node.name)">
               <Pencil :size="12" />
-            </button>
-            <button class="icon-btn icon-btn--danger" title="删除文件夹" @click.stop="remove(row.node.path)">
+            </IconButton>
+            <IconButton title="删除文件夹" kind="danger" @click.stop="remove(row.node.path)">
               <Trash2 :size="12" />
-            </button>
+            </IconButton>
           </span>
         </template>
         <template v-else>
@@ -429,12 +435,12 @@ async function remove(path: string): Promise<void> {
           <span class="tree-icon"><FileText :size="14" /></span>
           <button class="tree-file" @click.stop="openFile(row.node.path)">{{ basename(row.node.path) }}</button>
           <span class="tree-ops">
-            <button class="icon-btn" title="重命名" @click.stop="rename(row.node.path, row.node.name)">
+            <IconButton title="重命名" kind="accent" @click.stop="rename(row.node.path, row.node.name)">
               <Pencil :size="12" />
-            </button>
-            <button class="icon-btn icon-btn--danger" title="删除文件" @click.stop="remove(row.node.path)">
+            </IconButton>
+            <IconButton title="删除文件" kind="danger" @click.stop="remove(row.node.path)">
               <Trash2 :size="12" />
-            </button>
+            </IconButton>
           </span>
         </template>
       </div>
@@ -442,7 +448,9 @@ async function remove(path: string): Promise<void> {
 
     <!-- 拖拽导入反馈 -->
     <div v-if="dragging" class="tree-drop-hint">
-      {{ dragKind === 'image' ? '松开以上传图片' : '松开以导入文档' }} → {{ dirLabel() }}
+      <span>{{ dragKind === 'image' ? '松开以上传图片' : '松开以导入文档' }}</span>
+      <ArrowRight :size="13" />
+      <span>{{ dirLabel() }}</span>
     </div>
 
     <!-- 链接导入弹窗 -->
